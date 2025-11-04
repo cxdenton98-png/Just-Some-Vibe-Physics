@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>3D Relativistic Wave-Packet Lab (Fixed v2)</title>
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+<style>
+  :root{--bg:#0b1020;--panel:#121a33;--ink:#e9eefc;--muted:#b4bfde;--accent:#6aa3ff;--a2:#ff8f5a;--a3:#7dd3a5;--a4:#d6a0ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  h1{font-weight:700;margin:8px 0 16px;font-size:22px}
+  .row{display:grid;grid-template-columns:1fr 330px;gap:18px}
+  .card{background:var(--panel);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:16px}
+  canvas{width:100%;height:600px;display:block;background:linear-gradient(180deg,#0f1633,#0b1020)}
+  .controls label{display:block;font-size:12px;color:var(--muted);margin-top:12px}
+  .controls input[type="range"]{width:100%}
+  .mode{display:flex;gap:8px;margin-bottom:12px}
+  .mode button{flex:1;padding:8px 10px;border-radius:10px;border:1px solid #2a3e7a;background:#162046;color:var(--ink);cursor:pointer}
+  .mode button.active{background:#27408f;border-color:#4266d1}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:12px;background:#1a2450;border:1px solid #2a3e7a;color:var(--muted)}
+  .stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .small{font-size:12px;color:var(--muted)}
+  .badge{padding:2px 6px;border-radius:8px;background:#1c264f;border:1px solid #324a95;color:#b9c7ff;font-size:11px}
+  .legend{display:flex;gap:10px;flex-wrap:wrap}
+  .sw{display:inline-flex;align-items:center;gap:6px}
+  .sw i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .btn{padding:8px 10px;border-radius:10px;border:1px solid #2a3e7a;background:#162046;color:var(--ink);cursor:pointer}
+  .frame-toggle{display:flex;gap:8px;margin-top:14px;padding:10px;background:#0f1633;border-radius:10px;border:1px solid #2a3e7a}
+  .info-box{margin-top:10px;padding:8px;background:#0f1633;border-radius:8px;border:1px solid #2a3e7a;font-size:11px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>3D Relativistic Wave-Packet Lab <span class="badge">Fixed-k / Fixed-μ</span> <span class="badge">Group Frame</span></h1>
+  <div class="row">
+    <div class="card">
+      <canvas id="view"></canvas>
+      <div class="legend small" id="legend"></div>
+    </div>
+    <div class="card controls">
+      <div class="mode">
+        <button id="modeK" class="active">Fixed k (same wavelength)</button>
+        <button id="modeMu">Fixed μ (same regime)</button>
+      </div>
+      <div id="panelK">
+        <label>log₁₀ k₀ (m⁻¹): <span class="mono" id="k0Read">10.0</span></label>
+        <input type="range" id="k0" min="9" max="13" step="0.1" value="10"/>
+        <div class="small">λ₀ = <span class="mono" id="lambda0">6.28e-01</span> nm</div>
+      </div>
+      <div id="panelMu" style="display:none">
+        <label>log₁₀ μ: <span class="mono" id="muRead">0.0</span></label>
+        <input type="range" id="mu" min="-2" max="6" step="0.1" value="0"/>
+        <div class="small">v<sub>g</sub>/c = <span class="mono" id="vgc">0.707</span> · v<sub>p</sub>/c = <span class="mono" id="vpc">1.414</span></div>
+      </div>
+      <label>log₁₀(Δk/k): <span class="mono" id="dkRead">-1.0</span></label>
+      <input type="range" id="dk" min="-2" max="0" step="0.1" value="-1"/>
+      
+      <label>Mesh Resolution: <span class="mono" id="meshResRead">128×128</span></label>
+      <input type="range" id="meshRes" min="0" max="4" step="1" value="2"/>
+      <div class="small">Higher = more detail. GPU can handle 512×512!</div>
+      
+      <label>k-space samples: <span class="mono" id="kSamplesRead">80</span></label>
+      <input type="range" id="kSamples" min="0" max="4" step="1" value="1"/>
+      <div class="small">2D Gaussian grid (√N × √N). Higher = smoother, may reduce artifacts</div>
+      
+      <label>View window (nm): <span class="mono" id="xspanRead">120</span></label>
+      <input type="range" id="xspan" min="50" max="10000" step="50" value="120"/>
+      <label>log₁₀ time (s): <span class="mono" id="tRead">-18.0</span></label>
+      <input type="range" id="time" min="-18" max="-8" step="0.01" value="-18"/>
+      <div class="row2">
+        <button class="btn" id="play">▶ Play</button>
+        <label>Speed <input type="range" id="speed" min="1" max="10" value="5"/></label>
+      </div>
+      
+      <!-- Group Frame Toggle -->
+      <div class="frame-toggle">
+        <div class="mode" style="margin:0;flex:1">
+          <button id="frameLab" class="active" style="flex:1">Lab Frame</button>
+          <button id="frameGroup" style="flex:1">Group Frame</button>
+        </div>
+      </div>
+      <div id="frameRefPanel" style="display:none;margin-top:8px">
+        <label style="margin:0">Follow particle frame: 
+          <select id="frameRef" class="btn" style="padding:4px 8px;width:auto">
+            <option value="electron">Electron</option>
+            <option value="muon">Muon</option>
+            <option value="pion">Pion</option>
+            <option value="proton">Proton</option>
+            <option value="photon">Photon</option>
+          </select>
+        </label>
+      </div>
+      <div class="info-box" id="frameInfo">
+        <strong>Lab Frame:</strong> Standard view where packets move with group velocity v<sub>g</sub>. See both motion and spreading.
+      </div>
+      
+      <button class="btn" id="exportBtn" style="margin-top:10px;width:100%">📸 Export Snapshot</button>
+      <button class="btn" id="exportTimeSeriesBtn" style="margin-top:6px;width:100%">📊 Export Time Series (50 steps)</button>
+      <button class="btn" id="exportGifBtn" style="margin-top:6px;width:100%">🎬 Export GIF Animation</button>
+      <div class="stack">
+        <span class="chip">Domain: 3D surface z = Re(ψ(x,y,t))</span>
+        <span class="chip">Viewer: orbit (drag), zoom (wheel)</span>
+      </div>
+      <label style="margin-top:14px"><input type="checkbox" id="demodToggle"> Demodulated view (carrier-freeze)</label>
+      <label style="margin-top:8px"><input type="checkbox" id="envelopeToggle" checked> Show envelope overlay</label>
+      <label style="margin-top:8px"><input type="checkbox" id="envelopeOnlyToggle"> Envelope-only mode (hide carrier)</label>
+      <label style="margin-top:14px">Show particles</label>
+      <div class="stack" id="toggles"></div>
+      <div class="small" style="margin-top:10px;padding:8px;background:#1a2450;border:1px solid #324a95;border-radius:8px;color:#b9c7ff">
+        <strong>✓ Key Physics Insight:</strong><br>
+        <strong>Fixed-k:</strong> All particles at same k → different ω'' → mass-dependent spreading (ratio = ω''(m)/ω''(m_e)).<br>
+        <strong>Fixed-μ:</strong> All particles at different k → ω''·k product is CONSTANT → all spread at same rate (ratio ≈ 1.0)!<br>
+        This is correct physics, not a bug!
+      </div>
+      <div class="small" style="margin-top:10px">Tip: In Fixed-μ, heavier mass ⇒ larger k, shorter λ, faster beating. Use Group Frame to isolate pure dispersion effects by removing packet motion.</div>
+    </div>
+  </div>
+</div>
+<script>
+/***** Physics setup *****/
+const h = 6.626e-34, c = 3e8, hbar = h/(2*Math.PI);
+const particles = {
+  photon:{m:0, color:"#fff", name:"Photon"},
+  electron:{m:9.109e-31, color:"#6aa3ff", name:"Electron"},
+  muon:{m:1.883e-28, color:"#ff8f5a", name:"Muon"},
+  pion:{m:2.488e-28, color:"#7dd3a5", name:"Pion"},
+  proton:{m:1.673e-27, color:"#d6a0ff", name:"Proton"}
+};
+
+function energy(m,k){ 
+  if(m === 0) return hbar*k*c; // Photon: E = pc
+  const p=hbar*k; 
+  return Math.sqrt((p*c)**2 + (m*c**2)**2); 
+}
+function omega(m,k){ return energy(m,k)/hbar; }
+function muOf(m,k){ 
+  if(m === 0) return 0; // Photon has μ = 0
+  return m*c/(hbar*k); 
+}
+function vgOfMu(mu){ 
+  if(mu === 0) return c; // Photon: vg = c
+  return c/Math.sqrt(1+mu*mu); 
+}
+function vpOfMu(mu){ 
+  if(mu === 0) return c; // Photon: vp = c
+  return c*Math.sqrt(1+mu*mu); 
+}
+
+// NEW: Calculate dispersion curvature ω''(k) for relativistic dispersion
+function omegaDoublePrime(m, k) {
+  if(m === 0) return 0; // Photon: linear dispersion, no spreading
+  
+  const om = omega(m, k);
+  const term1 = c*c / om;
+  const term2 = (c*c*c*c * hbar*hbar * k*k) / (om*om*om);
+  return term1 - term2;
+}
+
+// NEW: Calculate theoretical spreading ratio based on actual ω''(k) AND initial width
+// For Gaussian packet: σ(t)² = σ₀² + (ω''·t)²/(4σ₀²)
+// At long times: σ(t) ≈ |ω''|·t/(2σ₀)
+// Initial width from uncertainty: σ₀ ∝ 1/Δk
+// In this code: Δk = (Δk/k)·k, so if Δk/k is constant, then Δk ∝ k
+// Therefore: σ₀ ∝ 1/k
+// Spreading: σ(t) ∝ ω''·t/σ₀ ∝ ω''·t·k
+// 
+// CRITICAL DISCOVERY: In fixed-μ mode, ω''·k is CONSTANT for all particles!
+// This means all particles spread at the same rate.
+// Ratio: σ₂/σ₁ = (ω₂''·k₂) / (ω₁''·k₁) ≈ 1.0 in fixed-μ mode
+function theoreticalWidthRatio(m1, k1, m2, k2) {
+  if(m1 === 0 || m2 === 0) return 0; // Photon doesn't spread
+  
+  const ompp1 = Math.abs(omegaDoublePrime(m1, k1));
+  const ompp2 = Math.abs(omegaDoublePrime(m2, k2));
+  
+  if(ompp1 < 1e-30) return 0;
+  
+  // The spreading rate is proportional to ω''·k
+  // In fixed-μ mode, this product is approximately constant
+  // So the ratio should be close to 1.0
+  return (ompp2 * k2) / (ompp1 * k1);
+}
+
+// Calculate RMS width of wave packet from envelope
+function calculateWidth(A) {
+  const midJ = Math.floor(NY/2);
+  let sum_A = 0, sum_xA = 0, sum_x2A = 0;
+  
+  // Handle both 2D array (CPU) and flat array (GPU)
+  const isFlat = A instanceof Float32Array || (Array.isArray(A) && typeof A[0] === 'number');
+  
+  for(let i = 0; i < NX; i++){
+    const x = XY[midJ][i][0];  // x-coordinate at center row
+    const a = isFlat ? A[midJ * NX + i] : A[midJ][i];  // Handle flat or 2D
+    sum_A += a;
+    sum_xA += x * a;
+    sum_x2A += x * x * a;
+  }
+  
+  if(sum_A < 1e-20) return 0; // avoid division by zero
+  
+  const x_mean = sum_xA / sum_A;
+  const x2_mean = sum_x2A / sum_A;
+  const variance = x2_mean - x_mean * x_mean;
+  
+  return Math.sqrt(Math.abs(variance)); // RMS width in meters
+}
+
+/***** UI State *****/
+let mode = 'k';
+let referenceFrame = 'lab'; // 'lab' or 'group'
+let frameRefParticle = 'electron'; // which particle's vg to use in group frame
+let showDemod = false;
+let showEnvelope = true;
+let showEnvelopeOnly = false; // NEW: hide carrier, show only envelope
+
+// NEW: Flags to prevent concurrent recompute calls and buffer mapping
+let isRecomputeInProgress = false;
+let recomputeQueued = false;
+
+const ui = {
+  k0: document.getElementById('k0'), k0Read: document.getElementById('k0Read'),
+  lambda0: document.getElementById('lambda0'),
+  mu: document.getElementById('mu'), muRead: document.getElementById('muRead'), vgc: document.getElementById('vgc'), vpc: document.getElementById('vpc'),
+  dk: document.getElementById('dk'), dkRead: document.getElementById('dkRead'),
+  meshRes: document.getElementById('meshRes'), meshResRead: document.getElementById('meshResRead'),
+  kSamples: document.getElementById('kSamples'), kSamplesRead: document.getElementById('kSamplesRead'),
+  xspan: document.getElementById('xspan'), xspanRead: document.getElementById('xspanRead'),
+  time: document.getElementById('time'), tRead: document.getElementById('tRead'),
+  speed: document.getElementById('speed'), play: document.getElementById('play'),
+  panelK: document.getElementById('panelK'), panelMu: document.getElementById('panelMu'),
+  modeK: document.getElementById('modeK'), modeMu: document.getElementById('modeMu'),
+  frameLab: document.getElementById('frameLab'), frameGroup: document.getElementById('frameGroup'),
+  frameRef: document.getElementById('frameRef'), frameRefPanel: document.getElementById('frameRefPanel'),
+  frameInfo: document.getElementById('frameInfo'),
+  demodToggle: document.getElementById('demodToggle'),
+  envelopeToggle: document.getElementById('envelopeToggle'),
+  envelopeOnlyToggle: document.getElementById('envelopeOnlyToggle'),
+  legend: document.getElementById('legend'), toggles: document.getElementById('toggles')
+};
+
+for(const key of Object.keys(particles)){
+  const sw = document.createElement('label'); sw.className='sw small';
+  const checked = key !== 'photon' ? 'checked' : ''; // Photon unchecked by default
+  sw.innerHTML = `<input type="checkbox" data-key="${key}" ${checked}> <i style="background:${particles[key].color}"></i>${particles[key].name}`;
+  ui.toggles.appendChild(sw);
+}
+
+/***** 3D minimal engine (no libs): perspective + orbit *****/
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+let W=canvas.clientWidth, H=canvas.clientHeight; canvas.width=W; canvas.height=H;
+let yaw=0.9, pitch=0.5, dist=2.7; // camera orbit
+let isDrag=false, px=0, py=0;
+canvas.addEventListener('mousedown', e=>{isDrag=true; px=e.clientX; py=e.clientY;});
+window.addEventListener('mouseup', ()=>isDrag=false);
+window.addEventListener('mousemove', e=>{ 
+  if(!isDrag) return; 
+  const dx=(e.clientX-px), dy=(e.clientY-py); 
+  yaw+=dx*0.005; 
+  pitch+=dy*0.005; 
+  pitch=Math.max(-1.2, Math.min(1.2, pitch)); 
+  px=e.clientX; 
+  py=e.clientY;
+  if(!playing) recompute(); // Only recompute on drag if not playing
+});
+canvas.addEventListener('wheel', e=>{ 
+  dist *= (1+e.deltaY*0.001); 
+  dist=Math.max(1.2, Math.min(6, dist));
+  if(!playing) recompute(); // Only recompute on zoom if not playing
+});
+window.addEventListener('resize',()=>{W=canvas.clientWidth;H=canvas.clientHeight;canvas.width=W;canvas.height=H;});
+
+function proj([x,y,z]){ // simple perspective
+  const f = 800;
+  return [W/2 + f*x/(z+dist), H/2 - f*y/(z+dist)];
+}
+function rot(v){ // rotate by yaw,pitch then translate back
+  const [x,y,z]=v; const cy=Math.cos(yaw), sy=Math.sin(yaw);
+  const cp=Math.cos(pitch), sp=Math.sin(pitch);
+  const xr = cy*x - sy*z; const zr = sy*x + cy*z;
+  const yr = cp*y - sp*zr; const zr2 = sp*y + cp*zr;
+  return [xr,yr,zr2];
+}
+
+/***** Field generation: ψ(x,y,t) from 2D k-space Gaussian *****/
+// GPU-ACCELERATED VERSION - buffers allocated once, reused every frame
+let NX=128, NY=128; // Dynamic resolution - adjustable via slider
+let KS=80; // k-space samples - adjustable for integration accuracy
+let XY = []; // grid coordinates in meters
+let XSPAN = 120e-9; // 120 nm window (will be updated by slider)
+
+// Resolution presets (powers of 2 for GPU efficiency)
+const resolutionPresets = {
+  0: {size: 32, label: '32×32'},
+  1: {size: 64, label: '64×64'},
+  2: {size: 128, label: '128×128'},
+  3: {size: 256, label: '256×256'},
+  4: {size: 512, label: '512×512'},
+};
+let currentResolutionLevel = 2; // Start at 128×128
+
+// k-space sampling presets
+const kSamplesPresets = {
+  0: {samples: 40, label: '40'},
+  1: {samples: 80, label: '80'},
+  2: {samples: 120, label: '120'},
+  3: {samples: 160, label: '160'},
+  4: {samples: 240, label: '240'},
+};
+let currentKSamplesLevel = 1; // Start at 80
+
+// ============================================================================
+// WEBGPU SETUP - Allocate once at startup, reuse forever
+// ============================================================================
+let gpuDevice = null;
+let gpuPipeline = null;
+let gpuSupported = false;
+
+// PERSISTENT BUFFERS (allocated once, never destroyed until page unload)
+let outputZBuffer = null;
+let outputABuffer = null;
+let paramsBuffer = null;
+let bindGroup = null;
+
+// Staging buffers ONLY for export feature (not used in render loop)
+let stagingZBuffer = null;
+let stagingABuffer = null;
+
+// ============================================================================
+// RESIZE GPU BUFFERS: Called when user changes mesh resolution
+// ============================================================================
+function resizeGPUBuffers() {
+  if (!gpuSupported) return;
+  
+  console.log(`Resizing GPU buffers to ${NX}×${NY}...`);
+  
+  // Destroy old buffers
+  if (outputZBuffer) outputZBuffer.destroy();
+  if (outputABuffer) outputABuffer.destroy();
+  if (stagingZBuffer) stagingZBuffer.destroy();
+  if (stagingABuffer) stagingABuffer.destroy();
+  
+  // Allocate new buffers with updated size
+  const outputSize = NX * NY * 4; // f32 = 4 bytes
+  
+  outputZBuffer = gpuDevice.createBuffer({
+    size: outputSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  
+  outputABuffer = gpuDevice.createBuffer({
+    size: outputSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  
+  stagingZBuffer = gpuDevice.createBuffer({
+    size: outputSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  
+  stagingABuffer = gpuDevice.createBuffer({
+    size: outputSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  
+  // Update bind group with new buffers
+  bindGroup = gpuDevice.createBindGroup({
+    layout: gpuPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: outputZBuffer } },
+      { binding: 1, resource: { buffer: outputABuffer } },
+      { binding: 2, resource: { buffer: paramsBuffer } },
+    ],
+  });
+  
+  console.log(`Buffers resized to ${NX}×${NY}!`);
+}
+
+function updateGrid() {
+  XY = [];
+  for(let j=0;j<NY;j++){
+    const row=[]; const y = (j/(NY-1)-0.5)*XSPAN;
+    for(let i=0;i<NX;i++){ const x=(i/(NX-1)-0.5)*XSPAN; row.push([x,y]); }
+    XY.push(row);
+  }
+}
+
+// ============================================================================
+// STARTUP: Initialize WebGPU - compile shader, allocate buffers
+// This runs ONCE when page loads
+// ============================================================================
+async function initWebGPU() {
+  if (!navigator.gpu) {
+    console.log("WebGPU not supported, using CPU fallback");
+    return false;
+  }
+  
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      console.log("No GPU adapter found, using CPU fallback");
+      return false;
+    }
+    
+    gpuDevice = await adapter.requestDevice();
+    console.log("GPU device acquired!");
+    
+    // ========================================================================
+    // COMPILE SHADER (once at startup, cached forever)
+    // ========================================================================
+    const shaderCode = `
+      struct Params {
+        NX: u32,
+        NY: u32,
+        KS: u32,
+        showDemod: u32,  // Grouped all u32s together for alignment
+        mass: f32,
+        k0: f32,
+        dkr: f32,
+        t: f32,
+        xShift: f32,
+        XSPAN: f32,
+        omega0: f32,
+        hbar: f32,
+        c: f32,
+        kx0: f32,
+        ky0: f32,
+        padding: f32,  // Explicit padding to 64 bytes
+      }
+      
+      @group(0) @binding(0) var<storage, read_write> outputZ: array<f32>;
+      @group(0) @binding(1) var<storage, read_write> outputA: array<f32>;
+      @group(0) @binding(2) var<uniform> params: Params;
+      
+      fn omega_func(m: f32, k: f32, hbar: f32, c: f32) -> f32 {
+        if (m < 1e-35) {
+          return hbar * k * c;
+        }
+        let p = hbar * k;
+        return sqrt((p * c) * (p * c) + (m * c * c) * (m * c * c)) / hbar;
+      }
+      
+      @compute @workgroup_size(8, 8)
+      fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+        let i = id.x;
+        let j = id.y;
+        
+        if (i >= params.NX || j >= params.NY) {
+          return;
+        }
+        
+        // Compute grid position
+        let x_base = (f32(i) / f32(params.NX - 1u) - 0.5) * params.XSPAN;
+        let y = (f32(j) / f32(params.NY - 1u) - 0.5) * params.XSPAN;
+        let x = x_base - params.xShift;
+        
+        let dk = max(1e-6, abs(params.dkr * params.k0));
+        
+        // Sample k-space in 2D Gaussian pattern (DENSE grid with weights)
+        var re = 0.0;
+        var im = 0.0;
+        var norm = 0.0;
+        
+        // Use denser grid (~2x in each direction) with Gaussian weighting
+        let nk = u32(ceil(sqrt(f32(params.KS) * 4.0)));
+        let kRange = 3.0 * dk; // ±3σ in both directions
+        
+        for (var ikx = 0u; ikx < nk; ikx++) {
+          for (var iky = 0u; iky < nk; iky++) {
+            // Grid point in k-space
+            let kx = params.kx0 + (f32(ikx)/f32(nk-1u) - 0.5) * 2.0 * kRange;
+            let ky = params.ky0 + (f32(iky)/f32(nk-1u) - 0.5) * 2.0 * kRange;
+            
+            // 2D Gaussian weight
+            let dkx = kx - params.kx0;
+            let dky = ky - params.ky0;
+            let amp = exp(-(dkx*dkx + dky*dky)/(2.0*dk*dk));
+            
+            // Only include significant contributions (filter out negligible tails)
+            if (amp > 0.01) {
+              let kk = sqrt(kx*kx + ky*ky);
+              let om = omega_func(params.mass, kk, params.hbar, params.c);
+              
+              var ph: f32;
+              if (params.showDemod > 0u) {
+                ph = (kx-params.kx0)*x + (ky-params.ky0)*y - (om-params.omega0)*params.t;
+              } else {
+                ph = kx*x + ky*y - om*params.t;
+              }
+              
+              re += amp * cos(ph);
+              im += amp * sin(ph);
+              norm += amp;
+            }
+          }
+        }
+        
+        let inv = 1.0 / sqrt(f32(nk * nk));
+        let idx = j * params.NX + i;
+        
+        outputZ[idx] = re * inv / norm;
+        outputA[idx] = sqrt(re*re + im*im) * inv / norm;
+      }
+    `;
+    
+    const shaderModule = gpuDevice.createShaderModule({ code: shaderCode });
+    console.log("Shader compiled!");
+    
+    // ========================================================================
+    // CREATE PIPELINE (once at startup, reused every frame)
+    // ========================================================================
+    gpuPipeline = await gpuDevice.createComputePipelineAsync({
+      layout: 'auto',
+      compute: {
+        module: shaderModule,
+        entryPoint: 'main',
+      },
+    });
+    console.log("Pipeline created!");
+    
+    // ========================================================================
+    // ALLOCATE BUFFERS (once at startup, reused every frame)
+    // Think of this like allocating VRAM for game assets at load time
+    // ========================================================================
+    const outputSize = NX * NY * 4; // f32 = 4 bytes
+    
+    outputZBuffer = gpuDevice.createBuffer({
+      size: outputSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    
+    outputABuffer = gpuDevice.createBuffer({
+      size: outputSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    
+    // Uniform buffer for parameters (64 bytes, 16-byte aligned)
+    paramsBuffer = gpuDevice.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    
+    console.log("Buffers allocated!");
+    
+    // ========================================================================
+    // CREATE BIND GROUP (once at startup, reused every frame)
+    // This links shader inputs to buffers
+    // ========================================================================
+    bindGroup = gpuDevice.createBindGroup({
+      layout: gpuPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: outputZBuffer } },
+        { binding: 1, resource: { buffer: outputABuffer } },
+        { binding: 2, resource: { buffer: paramsBuffer } },
+      ],
+    });
+    
+    console.log("Bind group created!");
+    
+    // ========================================================================
+    // STAGING BUFFERS (for export only, not used in render loop)
+    // ========================================================================
+    stagingZBuffer = gpuDevice.createBuffer({
+      size: outputSize,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    
+    stagingABuffer = gpuDevice.createBuffer({
+      size: outputSize,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    
+    gpuSupported = true;
+    console.log("✅ WebGPU initialized successfully! GPU acceleration active.");
+    return true;
+    
+  } catch (error) {
+    console.error("WebGPU initialization failed:", error);
+    return false;
+  }
+}
+
+// ============================================================================
+// FRAME LOOP: GPU compute (no buffer allocation, just dispatch)
+// This runs every frame - only updates tiny uniform buffer then fires GPU
+// ============================================================================
+function waveSurfaceGPU(params) {
+  const {m, mode, k0, mu, dkr, t, frame, vgRef} = params;
+  
+  // Calculate derived values on CPU (cheap)
+  const k = (mode==='k') ? k0 : (m === 0 ? k0 : (m*c)/(hbar*mu));
+  const dk = Math.max(1e-6, Math.abs(dkr*k));
+  const omega0 = omega(m, k);
+  
+  // In Fixed μ mode, use the input μ directly. In Fixed k mode, calculate from k.
+  const muVal = (mode === 'mu') ? mu : ((m === 0) ? 0 : muOf(m, k));
+  const vg = vgOfMu(muVal);
+  const xShift = (frame === 'group') ? -vgRef * t : 0;
+  const kx0 = k;
+  const ky0 = 0;
+  
+  // ========================================================================
+  // UPDATE UNIFORM BUFFER (tiny: 64 bytes per frame)
+  // Think of this like updating game camera position each frame
+  // ========================================================================
+  // Use Uint32Array for u32 values, Float32Array for f32 values
+  const paramsBuffer32 = new Uint32Array(4);  // First 4 u32s
+  paramsBuffer32[0] = NX;
+  paramsBuffer32[1] = NY;
+  paramsBuffer32[2] = KS;
+  paramsBuffer32[3] = showDemod ? 1 : 0;
+  
+  const paramsBuffer32f = new Float32Array(12); // Remaining f32s
+  paramsBuffer32f[0] = m;
+  paramsBuffer32f[1] = k;
+  paramsBuffer32f[2] = dkr;
+  paramsBuffer32f[3] = t;
+  paramsBuffer32f[4] = xShift;
+  paramsBuffer32f[5] = XSPAN;
+  paramsBuffer32f[6] = omega0;
+  paramsBuffer32f[7] = hbar;
+  paramsBuffer32f[8] = c;
+  paramsBuffer32f[9] = kx0;
+  paramsBuffer32f[10] = ky0;
+  paramsBuffer32f[11] = 0; // padding
+  
+  // Write in two parts to maintain correct byte layout
+  gpuDevice.queue.writeBuffer(paramsBuffer, 0, paramsBuffer32);
+  gpuDevice.queue.writeBuffer(paramsBuffer, 16, paramsBuffer32f); // Start at byte 16
+  
+  // ========================================================================
+  // DISPATCH COMPUTE (GPU does all the work, no CPU waiting)
+  // Think of this like telling GPU "render frame" in a game
+  // ========================================================================
+  const commandEncoder = gpuDevice.createCommandEncoder();
+  const passEncoder = commandEncoder.beginComputePass();
+  passEncoder.setPipeline(gpuPipeline);
+  passEncoder.setBindGroup(0, bindGroup);
+  
+  const workgroupsX = Math.ceil(NX / 8);
+  const workgroupsY = Math.ceil(NY / 8);
+  passEncoder.dispatchWorkgroups(workgroupsX, workgroupsY);
+  passEncoder.end();
+  
+  gpuDevice.queue.submit([commandEncoder.finish()]);
+  
+  // ========================================================================
+  // NO WAITING! GPU computes in background while we return immediately
+  // Data stays in VRAM, we'll read it only if user clicks "Export"
+  // ========================================================================
+  
+  // Return metadata for rendering (actual Z,A data stays on GPU)
+  return {k, dk, vg, gpuData: true};
+}
+
+// ============================================================================
+// CPU FALLBACK: Original implementation for when GPU unavailable
+// ============================================================================
+function waveSurface(params){
+  // params: {m, mode, k0, mu, dkr, t, frame, vgRef}
+  const {m, mode, k0, mu, dkr, t, frame, vgRef} = params;
+  const k = (mode==='k') ? k0 : (m === 0 ? k0 : (m*c)/(hbar*mu));
+  const dk = Math.max(1e-6, Math.abs(dkr*k));
+  // base k-vector along +x
+  const kx0 = k, ky0 = 0;
+  const omega0 = omega(m, k); // Carrier frequency for demod
+  
+  // Compute group velocity for returning (and for frame info)
+  // In Fixed μ mode, use the input μ directly. In Fixed k mode, calculate from k.
+  const muVal = (mode === 'mu') ? mu : ((m === 0) ? 0 : muOf(m, k));
+  const vg = vgOfMu(muVal);
+  
+  // Frame shift: in group frame, shift coordinates by -vgRef*t
+  const xShift = (frame === 'group') ? -vgRef * t : 0;
+  
+  // build set of k' samples from 2D Gaussian distribution
+  // Use DENSE grid with Gaussian weights (not sparse uniform grid)
+  const samples=[];
+  const nk = Math.ceil(Math.sqrt(KS * 4)); // DENSER grid: ~2x in each direction
+  const kRange = 3*dk; // Sample ±3σ (covers 99.7% of Gaussian)
+  
+  for(let ikx=0; ikx<nk; ikx++){
+    for(let iky=0; iky<nk; iky++){
+      // Grid in k-space centered at (kx0, ky0)
+      const kx = kx0 + (ikx/(nk-1) - 0.5) * 2*kRange;
+      const ky = ky0 + (iky/(nk-1) - 0.5) * 2*kRange;
+      
+      // 2D Gaussian weight (independent in kx and ky)
+      const dkx = kx - kx0;
+      const dky = ky - ky0;
+      const amp = Math.exp(-(dkx*dkx + dky*dky)/(2*dk*dk));
+      
+      // Only include points with significant amplitude (optimization)
+      if(amp > 0.01) {  // Filter out negligible contributions
+        const kk = Math.hypot(kx,ky);
+        const om = omega(m, kk);
+        samples.push({kx,ky,amp,om});
+      }
+    }
+  }
+  
+  // compute ψ on grid (Re part for height, amplitude for envelope)
+  const Z = Array.from({length:NY},()=>Array(NX).fill(0));
+  const A = Array.from({length:NY},()=>Array(NX).fill(0)); // Envelope amplitude
+  let norm = 0;
+  for(const s of samples) norm += s.amp;
+  const inv = 1/Math.sqrt(nk*nk);  // FIXED: Use actual grid size nk*nk, not target KS
+  
+  for(let j=0;j<NY;j++){
+    for(let i=0;i<NX;i++){
+      let [x,y] = XY[j][i];
+      // Apply frame transformation
+      x = x - xShift;
+      
+      let re=0, im=0;
+      for(const s of samples){
+        let ph;
+        if(showDemod){
+          // Demodulated: subtract carrier phase to freeze carrier, see envelope
+          ph = (s.kx-kx0)*x + (s.ky-ky0)*y - (s.om-omega0)*t;
+        } else {
+          // Normal: full phase including carrier
+          ph = s.kx*x + s.ky*y - s.om*t;
+        }
+        re += s.amp*Math.cos(ph);
+        im += s.amp*Math.sin(ph);
+      }
+      Z[j][i] = re*inv/norm; // normalized height
+      A[j][i] = Math.hypot(re, im)*inv/norm; // envelope amplitude
+    }
+  }
+  return {Z, A, k, dk, vg};
+}
+
+// ============================================================================
+// GPU DATA READBACK: Called after compute to get results for Canvas rendering
+// This is the ONE blocking operation we need, but it's much faster than
+// recreating buffers every frame
+// ============================================================================
+async function readGPUResults() {
+  // Ensure staging buffers are not mapped before submission
+  // This prevents "buffer used in submit while mapped" errors
+  try {
+    stagingZBuffer.unmap();
+  } catch(e) {
+    // Buffer wasn't mapped, that's fine
+  }
+  try {
+    stagingABuffer.unmap();
+  } catch(e) {
+    // Buffer wasn't mapped, that's fine
+  }
+  
+  const commandEncoder = gpuDevice.createCommandEncoder();
+  
+  const outputSize = NX * NY * 4;
+  commandEncoder.copyBufferToBuffer(outputZBuffer, 0, stagingZBuffer, 0, outputSize);
+  commandEncoder.copyBufferToBuffer(outputABuffer, 0, stagingABuffer, 0, outputSize);
+  
+  gpuDevice.queue.submit([commandEncoder.finish()]);
+  
+  // Wait for GPU to finish (this is the blocking part, but unavoidable for Canvas)
+  await gpuDevice.queue.onSubmittedWorkDone();
+  
+  // Map and read
+  await stagingZBuffer.mapAsync(GPUMapMode.READ);
+  await stagingABuffer.mapAsync(GPUMapMode.READ);
+  
+  const Z_flat = new Float32Array(stagingZBuffer.getMappedRange()).slice();
+  const A_flat = new Float32Array(stagingABuffer.getMappedRange()).slice();
+  
+  stagingZBuffer.unmap();
+  stagingABuffer.unmap();
+  
+  // Convert flat to 2D for Z
+  const Z = Array.from({length: NY}, (_, j) => 
+    Array.from({length: NX}, (_, i) => Z_flat[j * NX + i])
+  );
+  
+  // Keep A as flat array (used for width calculation)
+  const A = A_flat;
+  
+  return {Z, A};
+}
+
+/***** Rendering *****/
+function fmtExp(v){ return v.toExponential(2); }
+let playing=false, rafId=null, tPower=-18;
+
+function drawScene(surfaces){
+  ctx.clearRect(0,0,W,H);
+  // axes
+  ctx.strokeStyle = '#203065'; ctx.lineWidth=1.2; ctx.setLineDash([6,6]);
+  // draw a faint floor grid
+  const G=6; for(let g=0; g<=G; g++){
+    const x = (g/G-0.5)*1.2, y0=-0.5, y1=0.5; // world units
+    let a=proj(rot([x,0,-0.6])), b=proj(rot([x,0,0.6]));
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    a=proj(rot([-0.6,0,(g/G-0.5)*1.2])); b=proj(rot([0.6,0,(g/G-0.5)*1.2]));
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // compute global height scale to keep overlays comparable
+  let maxAbs = 1e-9; for(const s of surfaces){ maxAbs = Math.max(maxAbs, s.maxAbs); }
+  const scaleXY = 1/(XSPAN*0.8); // world units per meter
+  const scaleZ  = 0.8/ maxAbs;   // world height scale
+  // draw each surface wireframe
+  for(const s of surfaces){
+    // Skip drawing the carrier wave if in envelope-only mode
+    if(!showEnvelopeOnly){
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.4;
+      // rows
+      for(let j=0;j<NY;j++){
+        ctx.beginPath();
+        for(let i=0;i<NX;i++){
+          const [x,y] = XY[j][i];
+          const z = s.Z[j][i];
+          const P = proj(rot([ x*scaleXY, z*scaleZ, y*scaleXY ]));
+          if(i===0) ctx.moveTo(P[0],P[1]); else ctx.lineTo(P[0],P[1]);
+        }
+        ctx.stroke();
+      }
+      // cols
+      for(let i=0;i<NX;i++){
+        ctx.beginPath();
+        for(let j=0;j<NY;j++){
+          const [x,y] = XY[j][i];
+          const z = s.Z[j][i];
+          const P = proj(rot([ x*scaleXY, z*scaleZ, y*scaleXY ]));
+          if(j===0) ctx.moveTo(P[0],P[1]); else ctx.lineTo(P[0],P[1]);
+        }
+        ctx.stroke();
+      }
+    }
+    
+    // Draw envelope overlay (or as main surface in envelope-only mode)
+    if(showEnvelope || showEnvelopeOnly){
+      if(s.A){
+        const isFlat = s.A instanceof Float32Array || (Array.isArray(s.A) && typeof s.A[0] === 'number');
+        
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = showEnvelopeOnly ? 3.5 : 2.5;
+        ctx.globalAlpha = showEnvelopeOnly ? 1.0 : 0.6;
+        // Draw central row of envelope
+        const midJ = Math.floor(NY/2);
+        ctx.beginPath();
+        for(let i=0;i<NX;i++){
+          const [x,y] = XY[midJ][i];
+          const a = isFlat ? s.A[midJ * NX + i] : s.A[midJ][i];
+          const P = proj(rot([ x*scaleXY, a*scaleZ, y*scaleXY ]));
+          if(i===0) ctx.moveTo(P[0],P[1]); else ctx.lineTo(P[0],P[1]);
+        }
+        ctx.stroke();
+        // Draw central col of envelope
+        const midI = Math.floor(NX/2);
+        ctx.beginPath();
+        for(let j=0;j<NY;j++){
+          const [x,y] = XY[j][midI];
+          const a = isFlat ? s.A[j * NX + midI] : s.A[j][midI];
+          const P = proj(rot([ x*scaleXY, a*scaleZ, y*scaleXY ]));
+          if(j===0) ctx.moveTo(P[0],P[1]); else ctx.lineTo(P[0],P[1]);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      }
+    }
+  }
+}
+
+async function recompute(){
+  // If a recompute is already in progress, mark that we need another one and return
+  if(isRecomputeInProgress) {
+    recomputeQueued = true;
+    return;
+  }
+  
+  // Mark that we're starting a recompute
+  isRecomputeInProgress = true;
+  
+  try {
+    await recomputeInternal();
+  } catch(error) {
+    console.error("Error in recompute:", error);
+  } finally {
+    // Mark that we're done
+    isRecomputeInProgress = false;
+    
+    // If another recompute was requested while we were busy, run it now
+    if(recomputeQueued) {
+      recomputeQueued = false;
+      // Use setTimeout to avoid deep recursion
+      setTimeout(() => recompute(), 0);
+    }
+  }
+}
+
+async function recomputeInternal(){
+  const k0 = 10**(+ui.k0.value);
+  const mu = 10**(+ui.mu.value);
+  const dkr = 10**(+ui.dk.value);
+  const t = 10**(+ui.time.value);
+  XSPAN = (+ui.xspan.value)*1e-9;
+  tPower = +ui.time.value;
+  ui.k0Read.textContent = ui.k0.value;
+  ui.lambda0.textContent = fmtExp((2*Math.PI/k0)*1e9)+' nm';
+  ui.muRead.textContent = ui.mu.value;
+  const vgc = 1/Math.sqrt(1+mu*mu), vpc = Math.sqrt(1+mu*mu);
+  ui.vgc.textContent = vgc.toFixed(3);
+  ui.vpc.textContent = vpc.toFixed(3);
+  ui.dkRead.textContent = ui.dk.value;
+  ui.xspanRead.textContent = (+ui.xspan.value).toFixed(0);
+  ui.tRead.textContent = tPower.toFixed(1);
+  updateGrid();
+  
+  // Calculate reference group velocity for group frame
+  let vgRef = 0;
+  if(referenceFrame === 'group'){
+    if(mode === 'mu'){
+      // In Fixed μ mode, all particles have the same μ, so vg is the same for all
+      vgRef = vgOfMu(mu);
+    } else {
+      // In Fixed k mode, use the reference particle's vg
+      const refP = particles[frameRefParticle];
+      if(refP){
+        const refK = k0;
+        const refMu = (refP.m === 0) ? 0 : muOf(refP.m, refK);
+        vgRef = vgOfMu(refMu);
+      }
+    }
+  }
+  
+  const activeKeys = [...ui.toggles.querySelectorAll('input[type="checkbox"]')].filter(cb=>cb.checked).map(cb=>cb.dataset.key);
+  const surfaces=[];
+  const widths = {}; // Store widths for ratio calculation
+  
+  ui.legend.innerHTML='';
+  
+  // First pass: compute all surfaces and widths
+  for(const key of activeKeys){
+    const P = particles[key];
+    
+    // Use GPU if available, otherwise fallback to CPU
+    let result;
+    if (gpuSupported) {
+      // Dispatch GPU compute (non-blocking)
+      const metadata = waveSurfaceGPU({m:P.m, mode, k0, mu, dkr, t, frame: referenceFrame, vgRef});
+      // Read results back (blocking, but much faster than CPU compute)
+      const gpuData = await readGPUResults();
+      result = {...metadata, Z: gpuData.Z, A: gpuData.A};
+    } else {
+      // CPU fallback
+      result = waveSurface({m:P.m, mode, k0, mu, dkr, t, frame: referenceFrame, vgRef});
+    }
+    
+    const {Z,A,k,dk,vg} = result;
+    let maxAbs=0; 
+    for(let j=0;j<NY;j++){ 
+      for(let i=0;i<NX;i++){ 
+        maxAbs=Math.max(maxAbs, Math.abs(Z[j][i])); 
+      }
+    }
+    surfaces.push({Z, A, color:P.color, maxAbs, key, k, dk, vg});
+    
+    // Calculate width
+    const width = calculateWidth(A);
+    widths[key] = width;
+  }
+  
+  // Get electron width as reference
+  const m_electron = particles.electron.m;
+  const width_electron = widths.electron || null;
+  
+  // Second pass: build legend with spreading ratios
+  for(let i=0; i<activeKeys.length; i++){
+    const key = activeKeys[i];
+    const P = particles[key];
+    const surf = surfaces[i];
+    const width = widths[key];
+    
+    let legendText, muVal, vp;
+    if(P.m === 0) {
+      // Photon special case
+      legendText = `${P.name} — k=${fmtExp(surf.k)} m⁻¹, λ=${fmtExp(2*Math.PI/surf.k)} m, μ=0, vg/c=1.000, vp/c=1.000`;
+      legendText += ` | width=${(width*1e9).toFixed(1)}nm [0× - no dispersion]`;
+    } else {
+      muVal = muOf(P.m, surf.k);
+      vp = vpOfMu(muVal);
+      legendText = `${P.name} — k=${fmtExp(surf.k)} m⁻¹, λ=${fmtExp(2*Math.PI/surf.k)} m`;
+      if(mode === 'k'){
+        legendText += `, vg/c=${(surf.vg/c).toFixed(3)}, vp/c=${(vp/c).toFixed(3)}`;
+      } else {
+        legendText += `, μ=${fmtExp(muVal)}`;
+      }
+      
+      // Add spreading ratio - CORRECTED
+      if(width_electron && width > 0){
+        const ratio_actual = width / width_electron;
+        
+        // CORRECTED: Use proper theory based on mode
+        let ratio_theory;
+        if(mode === 'k'){
+          // Fixed-k: both at same k, spreading ratio follows ω''(m,k) / ω''(m_e,k)
+          const ompp_e = Math.abs(omegaDoublePrime(m_electron, surf.k));
+          const ompp_p = Math.abs(omegaDoublePrime(P.m, surf.k));
+          ratio_theory = ompp_e > 0 ? ompp_p / ompp_e : 0;
+        } else {
+          // Fixed-μ: different k values, use actual ω''(k) ratio
+          const k_electron = (m_electron * c) / (hbar * mu);
+          ratio_theory = theoreticalWidthRatio(m_electron, k_electron, P.m, surf.k);
+        }
+        
+        if(key === 'electron'){
+          legendText += ` | w=${(width*1e9).toFixed(1)}nm [1.00×A, 1.00×T] (ref)`;
+        } else {
+          legendText += ` | w=${(width*1e9).toFixed(1)}nm [${ratio_actual.toFixed(3)}×A, ${ratio_theory.toFixed(3)}×T]`;
+        }
+      } else {
+        legendText += ` | w=${(width*1e9).toFixed(1)}nm`;
+      }
+    }
+    
+    const item = document.createElement('div'); item.className='sw'; 
+    item.innerHTML = `<i style="background:${P.color}"></i><span class="small">${legendText}</span>`; 
+    ui.legend.appendChild(item);
+  }
+  drawScene(surfaces);
+}
+
+// Helper function for debouncing rapid slider changes
+let debounceTimer = null;
+function debouncedRecompute() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(recompute, 16); // ~60fps max update rate
+}
+
+ui.k0.addEventListener('input',recompute);
+ui.mu.addEventListener('input',recompute);
+ui.dk.addEventListener('input',recompute);
+ui.meshRes.addEventListener('input', async ()=>{
+  currentResolutionLevel = +ui.meshRes.value;
+  const preset = resolutionPresets[currentResolutionLevel];
+  NX = NY = preset.size;
+  ui.meshResRead.textContent = preset.label;
+  
+  // Reinitialize GPU buffers for new size
+  if (gpuSupported) {
+    resizeGPUBuffers();
+  }
+  
+  // Update status badge
+  if (window.updateStatusBadge) window.updateStatusBadge();
+  
+  // Update grid and recompute
+  updateGrid();
+  await recompute();
+});
+ui.kSamples.addEventListener('input', async ()=>{
+  currentKSamplesLevel = +ui.kSamples.value;
+  const preset = kSamplesPresets[currentKSamplesLevel];
+  KS = preset.samples;
+  ui.kSamplesRead.textContent = preset.label;
+  
+  // No buffer resize needed, just recompute
+  await recompute();
+});
+// Use debouncing for xspan and time sliders as they can change very rapidly
+ui.xspan.addEventListener('input',debouncedRecompute);
+ui.time.addEventListener('input',debouncedRecompute);
+ui.toggles.addEventListener('change',recompute);
+ui.demodToggle.addEventListener('change',()=>{showDemod=ui.demodToggle.checked; recompute();});
+ui.envelopeToggle.addEventListener('change',()=>{showEnvelope=ui.envelopeToggle.checked; recompute();});
+ui.envelopeOnlyToggle.addEventListener('change',()=>{showEnvelopeOnly=ui.envelopeOnlyToggle.checked; recompute();});
+
+ui.modeK.addEventListener('click',()=>{mode='k'; ui.modeK.classList.add('active'); ui.modeMu.classList.remove('active'); ui.panelK.style.display='block'; ui.panelMu.style.display='none'; recompute();});
+ui.modeMu.addEventListener('click',()=>{mode='mu'; ui.modeMu.classList.add('active'); ui.modeK.classList.remove('active'); ui.panelK.style.display='none'; ui.panelMu.style.display='block'; recompute();});
+
+// Frame toggle
+ui.frameLab.addEventListener('click',()=>{
+  referenceFrame='lab'; 
+  ui.frameLab.classList.add('active'); 
+  ui.frameGroup.classList.remove('active'); 
+  ui.frameRefPanel.style.display = 'none';
+  ui.frameInfo.innerHTML = '<strong>Lab Frame:</strong> Standard view where packets move with group velocity v<sub>g</sub>. See both motion and spreading.';
+  recompute();
+});
+ui.frameGroup.addEventListener('click',()=>{
+  referenceFrame='group'; 
+  ui.frameGroup.classList.add('active'); 
+  ui.frameLab.classList.remove('active'); 
+  if(mode === 'k'){
+    ui.frameRefPanel.style.display = 'block';
+    const refName = particles[frameRefParticle].name;
+    ui.frameInfo.innerHTML = `<strong>Group Frame:</strong> Moving with <strong>${refName}</strong>'s v<sub>g</sub>. Other particles will move/drift relative to this frame. Only spreading visible for ${refName}.`;
+  } else {
+    ui.frameRefPanel.style.display = 'none';
+    ui.frameInfo.innerHTML = '<strong>Group Frame:</strong> Moving with the packet (all particles share same μ → same v<sub>g</sub>). Packets stay centered—only dispersion visible.';
+  }
+  recompute();
+});
+
+// Reference particle selector
+ui.frameRef.addEventListener('change',()=>{
+  frameRefParticle = ui.frameRef.value;
+  const refName = particles[frameRefParticle].name;
+  ui.frameInfo.innerHTML = `<strong>Group Frame:</strong> Moving with <strong>${refName}</strong>'s v<sub>g</sub>. Other particles will move/drift relative to this frame. Only spreading visible for ${refName}.`;
+  recompute();
+});
+
+ui.play.addEventListener('click',()=>{ 
+  playing=!playing; 
+  ui.play.textContent = playing?'⏸ Pause':'▶ Play'; 
+  if(playing) {
+    tick();
+  } else {
+    if(rafId) cancelAnimationFrame(rafId);
+  }
+});
+async function tick(){
+  if(!playing) return; // Stop if paused
+  const sp = +ui.speed.value; 
+  const slider = ui.time; 
+  let v = parseFloat(slider.value); 
+  v += 0.01*sp; // Increased from 0.002 to 0.01 to overcome step size
+  if(v > +slider.max) v = +slider.min; 
+  slider.value = v;
+  // Manually update everything since programmatic slider changes don't fire 'input' event
+  tPower = +slider.value; 
+  ui.tRead.textContent = tPower.toFixed(1);
+  const t = 10**tPower;
+  const k0 = 10**(+ui.k0.value);
+  const mu = 10**(+ui.mu.value);
+  const dkr = 10**(+ui.dk.value);
+  XSPAN = (+ui.xspan.value)*1e-9;
+  updateGrid(); // Update grid for current XSPAN
+  
+  // Calculate reference group velocity for group frame
+  let vgRef = 0;
+  if(referenceFrame === 'group'){
+    if(mode === 'mu'){
+      // In Fixed μ mode, all particles have the same μ, so vg is the same for all
+      vgRef = vgOfMu(mu);
+    } else {
+      // In Fixed k mode, use the reference particle's vg
+      const refP = particles[frameRefParticle];
+      if(refP){
+        const refK = k0;
+        const refMu = (refP.m === 0) ? 0 : muOf(refP.m, refK);
+        vgRef = vgOfMu(refMu);
+      }
+    }
+  }
+  
+  const activeKeys = [...ui.toggles.querySelectorAll('input[type="checkbox"]')].filter(cb=>cb.checked).map(cb=>cb.dataset.key);
+  const surfaces=[];
+  const widths = {}; // Store widths for ratio calculation
+  
+  ui.legend.innerHTML='';
+  
+  // First pass: compute all surfaces and widths
+  for(const key of activeKeys){
+    const P = particles[key];
+    
+    // Use GPU if available, otherwise fallback to CPU
+    let result;
+    if (gpuSupported) {
+      // Dispatch GPU compute (non-blocking)
+      const metadata = waveSurfaceGPU({m:P.m, mode, k0, mu, dkr, t, frame: referenceFrame, vgRef});
+      // Read results back (blocking, but much faster than CPU compute)
+      const gpuData = await readGPUResults();
+      result = {...metadata, Z: gpuData.Z, A: gpuData.A};
+    } else {
+      // CPU fallback
+      result = waveSurface({m:P.m, mode, k0, mu, dkr, t, frame: referenceFrame, vgRef});
+    }
+    
+    const {Z,A,k,dk,vg} = result;
+    let maxAbs=0; 
+    for(let j=0;j<NY;j++){ 
+      for(let i=0;i<NX;i++){ 
+        maxAbs=Math.max(maxAbs, Math.abs(Z[j][i])); 
+      }
+    }
+    surfaces.push({Z, A, color:P.color, maxAbs, key, k, dk, vg});
+    
+    // Calculate width
+    const width = calculateWidth(A);
+    widths[key] = width;
+  }
+  
+  // Get electron width as reference
+  const m_electron = particles.electron.m;
+  const width_electron = widths.electron || null;
+  
+  // Second pass: build legend with spreading ratios
+  for(let i=0; i<activeKeys.length; i++){
+    const key = activeKeys[i];
+    const P = particles[key];
+    const surf = surfaces[i];
+    const width = widths[key];
+    
+    let legendText, muVal, vp;
+    if(P.m === 0) {
+      // Photon special case
+      legendText = `${P.name} — k=${fmtExp(surf.k)} m⁻¹, λ=${fmtExp(2*Math.PI/surf.k)} m, μ=0, vg/c=1.000, vp/c=1.000`;
+      legendText += ` | w=${(width*1e9).toFixed(1)}nm [0× - no dispersion]`;
+    } else {
+      muVal = muOf(P.m, surf.k);
+      vp = vpOfMu(muVal);
+      legendText = `${P.name} — k=${fmtExp(surf.k)} m⁻¹, λ=${fmtExp(2*Math.PI/surf.k)} m`;
+      if(mode === 'k'){
+        legendText += `, vg/c=${(surf.vg/c).toFixed(3)}, vp/c=${(vp/c).toFixed(3)}`;
+      } else {
+        legendText += `, μ=${fmtExp(muVal)}`;
+      }
+      
+      // Add spreading ratio
+      if(width_electron && width > 0){
+        const ratio_actual = width / width_electron;
+        
+        // CORRECTED: Use proper theory based on mode
+        let ratio_theory;
+        if(mode === 'k'){
+          // Fixed-k: both at same k, spreading ratio follows ω''(m,k) / ω''(m_e,k)
+          const ompp_e = Math.abs(omegaDoublePrime(m_electron, surf.k));
+          const ompp_p = Math.abs(omegaDoublePrime(P.m, surf.k));
+          ratio_theory = ompp_e > 0 ? ompp_p / ompp_e : 0;
+        } else {
+          // Fixed-μ: different k values, use actual ω''(k) ratio
+          const k_electron = (m_electron * c) / (hbar * mu);
+          ratio_theory = theoreticalWidthRatio(m_electron, k_electron, P.m, surf.k);
+        }
+        
+        if(key === 'electron'){
+          legendText += ` | w=${(width*1e9).toFixed(1)}nm [1.00×A, 1.00×T] (ref)`;
+        } else {
+          legendText += ` | w=${(width*1e9).toFixed(1)}nm [${ratio_actual.toFixed(3)}×A, ${ratio_theory.toFixed(3)}×T]`;
+        }
+      } else {
+        legendText += ` | w=${(width*1e9).toFixed(1)}nm`;
+      }
+    }
+    
+    const item = document.createElement('div'); 
+    item.className='sw'; 
+    item.innerHTML = `<i style="background:${P.color}"></i><span class="small">${legendText}</span>`; 
+    ui.legend.appendChild(item);
+  }
+  drawScene(surfaces);
+  rafId = requestAnimationFrame(() => tick()); // Wrap in arrow function for async
+}
+
+// Note: initialization moved to bottom IIFE
+
+/***** Export Snapshot *****/
+document.getElementById('exportBtn').addEventListener('click', () => {
+  // Create a temporary canvas with more space for metadata
+  const exportCanvas = document.createElement('canvas');
+  const exportCtx = exportCanvas.getContext('2d');
+  const metadataHeight = 200;
+  exportCanvas.width = canvas.width;
+  exportCanvas.height = canvas.height + metadataHeight;
+  
+  // Draw the main visualization
+  exportCtx.drawImage(canvas, 0, 0);
+  
+  // Draw metadata panel below
+  exportCtx.fillStyle = '#0b1020';
+  exportCtx.fillRect(0, canvas.height, canvas.width, metadataHeight);
+  
+  // Gather current state
+  const k0 = 10**(+ui.k0.value);
+  const mu = 10**(+ui.mu.value);
+  const dkr = 10**(+ui.dk.value);
+  const t = 10**(+ui.time.value);
+  const activeKeys = [...ui.toggles.querySelectorAll('input[type="checkbox"]')].filter(cb=>cb.checked).map(cb=>cb.dataset.key);
+  
+  // Format metadata text
+  exportCtx.fillStyle = '#e9eefc';
+  exportCtx.font = '14px ui-monospace, monospace';
+  let y = canvas.height + 25;
+  const lineHeight = 18;
+  
+  exportCtx.fillText(`3D Relativistic Wave-Packet Lab — ${new Date().toISOString()}`, 20, y);
+  y += lineHeight + 5;
+  
+  exportCtx.font = '12px ui-monospace, monospace';
+  exportCtx.fillStyle = '#b4bfde';
+  
+  const formatVelocity = (v) => v < 0.0001 || v > 1000 ? v.toExponential(3) : v.toFixed(4);
+  
+  exportCtx.fillText(`Frame: ${referenceFrame === 'lab' ? 'Lab (stationary)' : 'Group (moving with packet)'}`, 20, y);
+  y += lineHeight;
+  
+  if(mode === 'k') {
+    exportCtx.fillText(`Mode: Fixed k₀ = ${k0.toExponential(2)} m⁻¹  (λ₀ = ${(2*Math.PI/k0*1e9).toExponential(2)} nm)`, 20, y);
+  } else {
+    const vgc = 1/Math.sqrt(1+mu*mu);
+    const vpc = Math.sqrt(1+mu*mu);
+    exportCtx.fillText(`Mode: Fixed μ = ${mu.toExponential(2)}  (vg/c = ${formatVelocity(vgc)}, vp/c = ${formatVelocity(vpc)})`, 20, y);
+  }
+  y += lineHeight;
+  
+  exportCtx.fillText(`Δk/k = ${dkr.toExponential(2)} · Time = ${t.toExponential(2)} s · View = ${(XSPAN*1e9).toFixed(0)} nm`, 20, y);
+  y += lineHeight;
+  
+  exportCtx.fillText(`Demodulated: ${showDemod ? 'Yes' : 'No'} · Envelope overlay: ${showEnvelope ? 'Yes' : 'No'}`, 20, y);
+  y += lineHeight + 5;
+  
+  exportCtx.fillText(`Active particles:`, 20, y);
+  y += lineHeight;
+  
+  for(const key of activeKeys) {
+    const P = particles[key];
+    
+    let k, muVal, vg, vp, lambdaText, muText;
+    
+    if(P.m === 0) {
+      // Photon: special case
+      k = mode === 'k' ? k0 : k0; // In Fixed-μ mode, just use k0 as reference
+      muVal = 0;
+      vg = c;
+      vp = c;
+      lambdaText = `λ=${(2*Math.PI/k).toExponential(2)} m`;
+      muText = `μ=0 (massless)`;
+    } else {
+      k = mode === 'k' ? k0 : (P.m * c) / (hbar * mu);
+      muVal = muOf(P.m, k);
+      vg = vgOfMu(muVal);
+      vp = vpOfMu(muVal);
+      lambdaText = `λ=${(2*Math.PI/k).toExponential(2)} m`;
+      muText = `μ=${muVal.toExponential(2)}`;
+    }
+    
+    exportCtx.fillStyle = P.color;
+    exportCtx.fillText(`● ${P.name}: k=${k.toExponential(2)} m⁻¹, ${lambdaText}, ${muText}, vg/c=${formatVelocity(vg/c)}, vp/c=${formatVelocity(vp/c)}`, 25, y);
+    y += lineHeight;
+  }
+  
+  // Download the image
+  exportCanvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wave-packet-${referenceFrame}-${mode}-t${ui.time.value}-${Date.now()}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+});
+
+/***** Export Time Series *****/
+document.getElementById('exportTimeSeriesBtn').addEventListener('click', () => {
+  const k0 = 10**(+ui.k0.value);
+  const mu = 10**(+ui.mu.value);
+  const dkr = 10**(+ui.dk.value);
+  const originalXSPAN = (+ui.xspan.value)*1e-9;
+  
+  // Calculate reference group velocity for group frame
+  let vgRef = 0;
+  if(referenceFrame === 'group'){
+    if(mode === 'mu'){
+      // In Fixed μ mode, all particles have the same μ, so vg is the same for all
+      vgRef = vgOfMu(mu);
+    } else {
+      // In Fixed k mode, use the reference particle's vg
+      const refP = particles[frameRefParticle];
+      if(refP){
+        const refK = k0;
+        const refMu = (refP.m === 0) ? 0 : muOf(refP.m, refK);
+        vgRef = vgOfMu(refMu);
+      }
+    }
+  }
+  
+  const activeKeys = [...ui.toggles.querySelectorAll('input[type="checkbox"]')].filter(cb=>cb.checked).map(cb=>cb.dataset.key);
+  
+  // Generate 50 logarithmic time points
+  const tMin = +ui.time.min;
+  const tMax = +ui.time.max;
+  const numSteps = 50;
+  const timePoints = [];
+  for(let i = 0; i < numSteps; i++){
+    const logT = tMin + (tMax - tMin) * i / (numSteps - 1);
+    timePoints.push(10**logT);
+  }
+  
+  // CSV header
+  let csv = 'time_s,log10_time,particle,mass_kg,k_m-1,wavelength_m,mu,vg_over_c,omega_double_prime,width_m,width_nm,ratio_actual,ratio_theory_correct\n';
+  
+  // Progress indicator
+  const statusMsg = document.createElement('div');
+  statusMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#121a33;padding:20px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,0.5);z-index:1000;color:#e9eefc;font-size:16px;';
+  statusMsg.textContent = 'Exporting time series... 0%';
+  document.body.appendChild(statusMsg);
+  
+  // Process asynchronously to allow UI updates
+  let stepIndex = 0;
+  
+  function processNextStep() {
+    if(stepIndex >= timePoints.length) {
+      // Done! Download CSV
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wave-packet-timeseries-${mode}-mu${ui.mu.value}-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(statusMsg);
+      return;
+    }
+    
+    const t = timePoints[stepIndex];
+    const logT = Math.log10(t);
+    
+    // Temporarily update grid for this XSPAN
+    XSPAN = originalXSPAN;
+    updateGrid();
+    
+    const widths = {};
+    
+    // Compute surfaces and widths for all particles
+    for(const key of activeKeys){
+      const P = particles[key];
+      const {Z,A,k,dk,vg} = waveSurface({m:P.m, mode, k0, mu, dkr, t, frame: referenceFrame, vgRef});
+      const width = calculateWidth(A);
+      widths[key] = width;
+    }
+    
+    // Get electron width as reference
+    const m_electron = particles.electron.m;
+    const width_electron = widths.electron || null;
+    
+    // Write data for each particle
+    for(const key of activeKeys){
+      const P = particles[key];
+      const width = widths[key];
+      
+      if(P.m === 0){
+        // Photon
+        const k = mode === 'k' ? k0 : k0;
+        csv += `${t},${logT.toFixed(3)},${P.name},${P.m},${k},${(2*Math.PI/k)},0,1.000,0,${width},${(width*1e9)},0,0\n`;
+      } else {
+        const k = mode === 'k' ? k0 : (P.m * c) / (hbar * mu);
+        const muVal = muOf(P.m, k);
+        const vg = vgOfMu(muVal);
+        const ompp = omegaDoublePrime(P.m, k);
+        
+        // CORRECTED: Use proper theory based on mode
+        let ratio_theory;
+        if(mode === 'k'){
+          // Fixed-k: both at same k, spreading ratio follows ω''(m,k) / ω''(m_e,k)
+          const ompp_e = Math.abs(omegaDoublePrime(m_electron, k));
+          const ompp_p = Math.abs(omegaDoublePrime(P.m, k));
+          ratio_theory = ompp_e > 0 ? ompp_p / ompp_e : 0;
+        } else {
+          // Fixed-μ: different k values, use actual ω''(k) ratio
+          const k_electron = (m_electron * c) / (hbar * mu);
+          ratio_theory = theoreticalWidthRatio(m_electron, k_electron, P.m, k);
+        }
+        
+        const ratio_actual = width_electron && width > 0 ? width / width_electron : 0;
+        csv += `${t},${logT.toFixed(3)},${P.name},${P.m},${k},${(2*Math.PI/k)},${muVal},${(vg/c)},${ompp},${width},${(width*1e9)},${ratio_actual},${ratio_theory}\n`;
+      }
+    }
+    
+    stepIndex++;
+    statusMsg.textContent = `Exporting time series... ${Math.round(100*stepIndex/timePoints.length)}%`;
+    
+    // Process next step after a short delay to allow UI update
+    setTimeout(processNextStep, 10);
+  }
+  
+  processNextStep();
+});
+
+/***** Export GIF Animation *****/
+document.getElementById('exportGifBtn').addEventListener('click', async () => {
+  // Create config dialog
+  const configOverlay = document.createElement('div');
+  configOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(11,16,32,0.95);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  
+  const configBox = document.createElement('div');
+  configBox.style.cssText = 'background:var(--panel);padding:24px;border-radius:14px;box-shadow:0 10px 50px rgba(0,0,0,0.5);max-width:400px;width:90%;';
+  
+  configBox.innerHTML = `
+    <h3 style="margin:0 0 16px;font-size:18px;font-weight:700;color:var(--ink)">🎬 GIF Export Settings</h3>
+    
+    <label style="display:block;margin-bottom:12px;color:var(--muted);font-size:13px">
+      Quality Preset:
+      <select id="gifPreset" class="btn" style="width:100%;margin-top:4px;padding:8px">
+        <option value="discord">Discord (under 10MB) - 45 frames, 600×450</option>
+        <option value="medium">Medium (10-15MB) - 50 frames, 640×480</option>
+        <option value="high">High Quality (15-20MB) - 60 frames, 800×600</option>
+        <option value="custom">Custom...</option>
+      </select>
+    </label>
+    
+    <div id="customSettings" style="display:none;margin-top:16px;padding:12px;background:#0f1633;border-radius:8px;border:1px solid #2a3e7a">
+      <label style="display:block;margin-bottom:8px;color:var(--muted);font-size:12px">
+        Frames: <span id="frameCount">50</span>
+        <input type="range" id="gifFrames" min="20" max="80" value="50" style="width:100%">
+      </label>
+      
+      <label style="display:block;margin-bottom:8px;color:var(--muted);font-size:12px">
+        Frame Rate: <span id="fpsDisplay">17</span> fps
+        <input type="range" id="gifFps" min="10" max="30" value="17" style="width:100%">
+      </label>
+      
+      <label style="display:block;margin-bottom:8px;color:var(--muted);font-size:12px">
+        Resolution:
+        <select id="gifRes" class="btn" style="width:100%;margin-top:4px;padding:6px">
+          <option value="480,360">480×360 (Small)</option>
+          <option value="600,450" selected>600×450 (Medium)</option>
+          <option value="640,480">640×480 (Large)</option>
+          <option value="800,600">800×600 (XL)</option>
+        </select>
+      </label>
+      
+      <div style="margin-top:8px;padding:6px;background:#1a2450;border-radius:4px;font-size:11px;color:#b9c7ff">
+        Estimated size: <span id="sizeEstimate">~8-10 MB</span>
+      </div>
+    </div>
+    
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button id="gifCancel" class="btn" style="flex:1">Cancel</button>
+      <button id="gifStart" class="btn" style="flex:1;background:#27408f;border-color:#4266d1">Export</button>
+    </div>
+  `;
+  
+  configOverlay.appendChild(configBox);
+  document.body.appendChild(configOverlay);
+  
+  const presetSelect = configBox.querySelector('#gifPreset');
+  const customDiv = configBox.querySelector('#customSettings');
+  const framesInput = configBox.querySelector('#gifFrames');
+  const fpsInput = configBox.querySelector('#gifFps');
+  const resSelect = configBox.querySelector('#gifRes');
+  const frameCountSpan = configBox.querySelector('#frameCount');
+  const fpsSpan = configBox.querySelector('#fpsDisplay');
+  const sizeEstimate = configBox.querySelector('#sizeEstimate');
+  
+  // Preset configurations
+  const presets = {
+    discord: { frames: 45, fps: 17, res: '600,450' },
+    medium: { frames: 50, fps: 17, res: '640,480' },
+    high: { frames: 60, fps: 20, res: '800,600' }
+  };
+  
+  // Update custom settings when preset changes
+  presetSelect.addEventListener('change', () => {
+    if (presetSelect.value === 'custom') {
+      customDiv.style.display = 'block';
+    } else {
+      customDiv.style.display = 'none';
+      const preset = presets[presetSelect.value];
+      if (preset) {
+        framesInput.value = preset.frames;
+        fpsInput.value = preset.fps;
+        resSelect.value = preset.res;
+        updateEstimate();
+      }
+    }
+  });
+  
+  // Update displays when sliders move
+  framesInput.addEventListener('input', () => {
+    frameCountSpan.textContent = framesInput.value;
+    updateEstimate();
+  });
+  
+  fpsInput.addEventListener('input', () => {
+    fpsSpan.textContent = fpsInput.value;
+  });
+  
+  resSelect.addEventListener('change', updateEstimate);
+  
+  function updateEstimate() {
+    const frames = +framesInput.value;
+    const [w, h] = resSelect.value.split(',').map(Number);
+    const pixels = w * h;
+    // Rough estimate: ~3KB per frame at 600×450
+    const baseSize = (frames * pixels * 3) / 1024 / 1024;
+    const min = (baseSize * 0.8).toFixed(1);
+    const max = (baseSize * 1.2).toFixed(1);
+    sizeEstimate.textContent = `~${min}-${max} MB`;
+  }
+  
+  updateEstimate();
+  
+  // Handle buttons
+  configBox.querySelector('#gifCancel').addEventListener('click', () => {
+    document.body.removeChild(configOverlay);
+  });
+  
+  configBox.querySelector('#gifStart').addEventListener('click', async () => {
+    document.body.removeChild(configOverlay);
+    
+    // Get settings
+    let numFrames, fps, gifWidth, gifHeight;
+    
+    if (presetSelect.value === 'custom') {
+      numFrames = +framesInput.value;
+      fps = +fpsInput.value;
+      [gifWidth, gifHeight] = resSelect.value.split(',').map(Number);
+    } else {
+      const preset = presets[presetSelect.value];
+      numFrames = preset.frames;
+      fps = preset.fps;
+      [gifWidth, gifHeight] = preset.res.split(',').map(Number);
+    }
+    
+    const frameDelay = Math.round(1000 / fps);
+    
+    // Start the actual export
+    await doGifExport(numFrames, frameDelay, gifWidth, gifHeight);
+  });
+});
+
+async function doGifExport(numFrames, frameDelay, gifWidth, gifHeight) {
+  // Get current settings
+  const originalTime = +ui.time.value;
+  const tMin = +ui.time.min;
+  const tMax = +ui.time.max;
+  
+  // Create progress overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(11,16,32,0.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+  
+  const statusBox = document.createElement('div');
+  statusBox.style.cssText = 'background:var(--panel);padding:30px 40px;border-radius:14px;box-shadow:0 10px 50px rgba(0,0,0,0.5);text-align:center;max-width:400px;';
+  
+  const statusTitle = document.createElement('div');
+  statusTitle.style.cssText = 'font-size:18px;font-weight:700;margin-bottom:12px;color:var(--ink);';
+  statusTitle.textContent = '🎬 Creating GIF...';
+  
+  const statusMsg = document.createElement('div');
+  statusMsg.style.cssText = 'font-size:14px;color:var(--muted);margin-bottom:16px;';
+  statusMsg.textContent = 'Initializing...';
+  
+  const progressBar = document.createElement('div');
+  progressBar.style.cssText = 'width:100%;height:6px;background:#1a2450;border-radius:3px;overflow:hidden;';
+  const progressFill = document.createElement('div');
+  progressFill.style.cssText = 'height:100%;background:linear-gradient(90deg,var(--accent),var(--a3));width:0%;transition:width 0.3s;';
+  progressBar.appendChild(progressFill);
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'margin-top:16px;';
+  
+  statusBox.appendChild(statusTitle);
+  statusBox.appendChild(statusMsg);
+  statusBox.appendChild(progressBar);
+  statusBox.appendChild(cancelBtn);
+  overlay.appendChild(statusBox);
+  document.body.appendChild(overlay);
+  
+  let cancelled = false;
+  cancelBtn.addEventListener('click', () => {
+    cancelled = true;
+  });
+  
+  try {
+    // Fetch worker script and create blob URL
+    statusMsg.textContent = 'Loading GIF encoder...';
+    const workerResponse = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
+    if (!workerResponse.ok) throw new Error('Failed to load GIF worker');
+    const workerBlob = await workerResponse.blob();
+    const workerUrl = URL.createObjectURL(workerBlob);
+    
+    // Initialize GIF encoder with blob URL worker
+    const gif = new GIF({
+      workers: 2,
+      quality: 10, // 1-30, lower = better quality
+      width: gifWidth,
+      height: gifHeight,
+      workerScript: workerUrl
+    });
+    
+    // Create temporary canvas for scaling
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = gifWidth;
+    tempCanvas.height = gifHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    statusMsg.textContent = 'Capturing frames: 0%';
+    
+    // Store original canvas size
+    const origWidth = canvas.width;
+    const origHeight = canvas.height;
+    
+    // Capture frames
+    for(let i = 0; i < numFrames; i++) {
+      if(cancelled) {
+        document.body.removeChild(overlay);
+        URL.revokeObjectURL(workerUrl);
+        ui.time.value = originalTime;
+        await recompute();
+        return;
+      }
+      
+      // Update time
+      const logT = tMin + (tMax - tMin) * i / (numFrames - 1);
+      ui.time.value = logT;
+      ui.tRead.textContent = logT.toFixed(2);
+      
+      // Render frame
+      await recompute();
+      
+      // CRITICAL: Multiple waits to ensure render completes
+      // Wait for any pending animation frames
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      // Additional wait for any async canvas operations
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Verify canvas has content (not blank)
+      const checkCtx = canvas.getContext('2d');
+      const imageData = checkCtx.getImageData(canvas.width/2, canvas.height/2, 1, 1);
+      
+      // Scale down to GIF size
+      tempCtx.fillStyle = '#0b1020'; // Match background
+      tempCtx.fillRect(0, 0, gifWidth, gifHeight);
+      tempCtx.drawImage(canvas, 0, 0, gifWidth, gifHeight);
+      
+      // Add frame to GIF
+      gif.addFrame(tempCanvas, {copy: true, delay: frameDelay});
+      
+      // Update progress
+      const captureProgress = ((i + 1) / numFrames) * 50; // First 50% is capture
+      progressFill.style.width = captureProgress + '%';
+      statusMsg.textContent = `Capturing frames: ${Math.round(captureProgress * 2)}% (t=${(10**logT).toExponential(2)}s)`;
+    }
+    
+    if(cancelled) {
+      document.body.removeChild(overlay);
+      URL.revokeObjectURL(workerUrl);
+      ui.time.value = originalTime;
+      await recompute();
+      return;
+    }
+    
+    // Update status for encoding phase
+    statusMsg.textContent = 'Encoding GIF... this may take 10-30 seconds';
+    progressFill.style.width = '50%';
+    
+    // Set up encoding progress callback
+    gif.on('progress', (progress) => {
+      const encodeProgress = 50 + (progress * 50); // Second 50% is encoding
+      progressFill.style.width = encodeProgress + '%';
+      statusMsg.textContent = `Encoding GIF: ${Math.round(progress * 100)}%`;
+    });
+    
+    // Handle completion
+    gif.on('finished', (blob) => {
+      if(cancelled) return;
+      
+      // Download the GIF
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const mode = document.getElementById('modeK').classList.contains('active') ? 'fixedK' : 'fixedMu';
+      a.download = `wave-packet-${mode}-${Date.now()}.gif`;
+      a.click();
+      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(workerUrl);
+      
+      // Show completion message
+      statusTitle.textContent = '✅ GIF Ready!';
+      statusMsg.textContent = `Created ${numFrames}-frame animation`;
+      progressFill.style.width = '100%';
+      cancelBtn.textContent = 'Close';
+      
+      // Auto-close after 2 seconds
+      setTimeout(() => {
+        document.body.removeChild(overlay);
+        // Restore original time
+        ui.time.value = originalTime;
+        recompute();
+      }, 2000);
+    });
+    
+    // Start encoding
+    gif.render();
+    
+  } catch(error) {
+    console.error('GIF export error:', error);
+    statusTitle.textContent = '❌ Export Failed';
+    statusMsg.textContent = error.message || 'Unknown error occurred';
+    progressFill.style.background = 'var(--a2)';
+    cancelBtn.textContent = 'Close';
+    cancelBtn.onclick = () => {
+      document.body.removeChild(overlay);
+      ui.time.value = originalTime;
+      recompute();
+    };
+  }
+}
+
+// ============================================================================
+// INITIALIZE: Set up WebGPU on page load, then render first frame
+// ============================================================================
+(async () => {
+  console.log("Initializing wave packet simulator...");
+  
+  // Try to initialize WebGPU
+  await initWebGPU();
+  
+  // Show status
+  const status = document.createElement('div');
+  status.id = 'gpuStatusBadge';
+  status.style.cssText = 'position:fixed;top:10px;right:10px;padding:8px 12px;border-radius:8px;font-size:11px;font-weight:600;z-index:1000';
+  
+  function updateStatusBadge() {
+    const badge = document.getElementById('gpuStatusBadge');
+    if (!badge) return;
+    
+    if (gpuSupported) {
+      badge.style.background = '#1a3329';
+      badge.style.border = '1px solid #2d5f47';
+      badge.style.color = '#7dd3a5';
+      badge.textContent = `🚀 GPU Accelerated (${NX}×${NY})`;
+    } else {
+      badge.style.background = '#3d2515';
+      badge.style.border = '1px solid #6b4423';
+      badge.style.color = '#ff8f5a';
+      badge.textContent = `⚠️ CPU Fallback (${NX}×${NY})`;
+    }
+  }
+  
+  if (gpuSupported) {
+    status.style.background = '#1a3329';
+    status.style.border = '1px solid #2d5f47';
+    status.style.color = '#7dd3a5';
+    status.textContent = `🚀 GPU Accelerated (${NX}×${NY})`;
+  } else {
+    status.style.background = '#3d2515';
+    status.style.border = '1px solid #6b4423';
+    status.style.color = '#ff8f5a';
+    status.textContent = `⚠️ CPU Fallback (${NX}×${NY})`;
+  }
+  document.body.appendChild(status);
+  
+  // Make updateStatusBadge available globally for resolution changes
+  window.updateStatusBadge = updateStatusBadge;
+  
+  // Initial render
+  updateGrid();
+  await recompute();
+  
+  console.log("Ready!");
+})();
+
+</script>
+</body>
+</html>
