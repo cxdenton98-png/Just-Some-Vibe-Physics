@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bell's Inequality Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
+    <div id="app" class="max-w-4xl mx-auto p-6">
+        <!-- Content will be rendered here by JavaScript -->
+    </div>
+
+    <script>
+        // Game state
+        let state = {
+            strategy: 'copy-input',
+            isPlaying: false,
+            rounds: 0,
+            wins: 0,
+            currentRound: null,
+            showExplanation: true,
+            autoPlayCount: 500,
+            autoPlayTarget: 0,
+            runUntilPrecise: false,
+            targetPrecision: 0.01,
+            autoPlayInterval: null
+        };
+
+        // Strategy definitions
+        const strategies = {
+            'copy-input': {
+                name: 'Copy Input',
+                description: 'Each player outputs their own input (bad strategy)',
+                alice: (x) => x,
+                bob: (y) => y,
+                winRate: 0.25
+            },
+            'opposite-input': {
+                name: 'Output Opposite',
+                description: 'Each player outputs the opposite of their input',
+                alice: (x) => 1 - x,
+                bob: (y) => 1 - y,
+                winRate: 0.25
+            },
+            'alice-input-bob-opposite': {
+                name: 'Alice Copies, Bob Opposes',
+                description: 'Alice copies her input, Bob outputs opposite of his',
+                alice: (x) => x,
+                bob: (y) => 1 - y,
+                winRate: 0.75
+            },
+            'optimal-classical': {
+                name: 'Optimal Classical (75%)',
+                description: 'Both always output 0 (or 1, or several other equivalent strategies). This is provably the best possible without entanglement!',
+                alice: (x) => 0,
+                bob: (y) => 0,
+                winRate: 0.75
+            },
+            'quantum': {
+                name: 'Quantum Strategy (~85%)',
+                description: 'Using entangled qubits with optimal measurement angles (Tsirelson bound)',
+                quantum: true,
+                winRate: Math.cos(Math.PI / 8) ** 2
+            }
+        };
+
+        // Play a single round
+        function playRound() {
+            const x = Math.random() < 0.5 ? 0 : 1;
+            const y = Math.random() < 0.5 ? 0 : 1;
+            
+            let a, b;
+            const currentStrategy = strategies[state.strategy];
+            
+            if (currentStrategy.quantum) {
+                // OPTIMAL CHSH angles achieving Tsirelson's bound
+                const theta_a = x === 0 ? 0 : (Math.PI / 2);
+                const theta_b = y === 0 ? (Math.PI / 4) : (-Math.PI / 4);
+                
+                // Quantum correlation from entangled pair
+                const angleDiff = theta_a - theta_b;
+                const probSame = Math.cos(angleDiff / 2) ** 2;
+                
+                // Alice's random outcome
+                a = Math.random() < 0.5 ? 0 : 1;
+                
+                // Bob's outcome correlated via entanglement
+                b = Math.random() < probSame ? a : (1 - a);
+            } else {
+                a = currentStrategy.alice(x);
+                b = currentStrategy.bob(y);
+            }
+            
+            const aliceXorBob = (a + b) % 2;
+            const xAndY = x & y;
+            const win = aliceXorBob === xAndY;
+            
+            state.currentRound = { x, y, a, b, win, aliceXorBob, xAndY };
+            state.rounds++;
+            if (win) state.wins++;
+            
+            render();
+        }
+
+        // Reset the game
+        function reset() {
+            if (state.autoPlayInterval) {
+                clearInterval(state.autoPlayInterval);
+            }
+            state.rounds = 0;
+            state.wins = 0;
+            state.currentRound = null;
+            state.isPlaying = false;
+            state.runUntilPrecise = false;
+            state.autoPlayInterval = null;
+            render();
+        }
+
+        // Auto-play functionality
+        function autoPlay() {
+            state.autoPlayTarget = state.rounds + state.autoPlayCount;
+            state.runUntilPrecise = false;
+            state.isPlaying = true;
+            startAutoPlay();
+        }
+
+        function runUntilPrecise() {
+            state.runUntilPrecise = true;
+            state.isPlaying = true;
+            startAutoPlay();
+        }
+
+        function startAutoPlay() {
+            if (state.autoPlayInterval) {
+                clearInterval(state.autoPlayInterval);
+            }
+            
+            state.autoPlayInterval = setInterval(() => {
+                playRound();
+                
+                const winRate = state.rounds > 0 ? (state.wins / state.rounds) : 0;
+                const marginOfError = state.rounds > 0 ? 1.96 * Math.sqrt((winRate * (1 - winRate)) / state.rounds) : 0;
+                
+                if (state.runUntilPrecise) {
+                    if (state.rounds > 10 && marginOfError <= state.targetPrecision) {
+                        stopAutoPlay();
+                    }
+                    if (state.rounds >= 100000) {
+                        stopAutoPlay();
+                    }
+                } else {
+                    if (state.rounds >= state.autoPlayTarget) {
+                        stopAutoPlay();
+                    }
+                }
+            }, 1);
+        }
+
+        function stopAutoPlay() {
+            if (state.autoPlayInterval) {
+                clearInterval(state.autoPlayInterval);
+                state.autoPlayInterval = null;
+            }
+            state.isPlaying = false;
+            render();
+        }
+
+        // Calculate statistics
+        function getStats() {
+            const winRate = state.rounds > 0 ? (state.wins / state.rounds) : 0;
+            const expectedRate = strategies[state.strategy].winRate;
+            const marginOfError = state.rounds > 0 ? 1.96 * Math.sqrt((winRate * (1 - winRate)) / state.rounds) : 0;
+            const confidenceLow = Math.max(0, winRate - marginOfError);
+            const confidenceHigh = Math.min(1, winRate + marginOfError);
+            const isSignificant = state.rounds >= 100;
+            const canDistinguishQuantum = state.rounds >= 400;
+            
+            return { winRate, expectedRate, marginOfError, confidenceLow, confidenceHigh, isSignificant, canDistinguishQuantum };
+        }
+
+        // Render the UI
+        function render() {
+            const stats = getStats();
+            const currentStrategy = strategies[state.strategy];
+            
+            document.getElementById('app').innerHTML = `
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">Bell's Inequality Game</h1>
+                    <p class="text-gray-600 mb-4">Can Alice and Bob make XOR equal AND without communicating?</p>
+                    
+                    <button
+                        onclick="toggleExplanation()"
+                        class="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-4 cursor-pointer"
+                    >
+                        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
+                            <path d="M12 16v-4m0-4h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        ${state.showExplanation ? 'Hide' : 'Show'} Rules
+                    </button>
+
+                    ${state.showExplanation ? `
+                    <div class="bg-blue-50 p-4 rounded-lg mb-6 text-sm">
+                        <h3 class="font-semibold mb-2">The Game:</h3>
+                        <ul class="list-disc list-inside space-y-1 mb-3">
+                            <li>Alice gets a random bit (x), Bob gets a random bit (y)</li>
+                            <li>Alice outputs bit (a), Bob outputs bit (b)</li>
+                            <li>They WIN if: (a XOR b) = (x AND y)</li>
+                            <li>They CANNOT communicate after seeing their inputs!</li>
+                        </ul>
+                        <p class="font-semibold text-blue-800">
+                            Classical limit: 75% win rate maximum. Quantum entanglement: ~85%! 🤯
+                        </p>
+                    </div>
+                    ` : ''}
+
+                    <div class="mb-6">
+                        <label class="block font-semibold mb-2 text-gray-700">Target precision for "Run Until Precise":</label>
+                        <select
+                            onchange="updateTargetPrecision(this.value)"
+                            class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none mb-4"
+                        >
+                            <option value="0.005" ${state.targetPrecision === 0.005 ? 'selected' : ''}>±0.5% (very precise, ~20k rounds)</option>
+                            <option value="0.01" ${state.targetPrecision === 0.01 ? 'selected' : ''}>±1% (precise, ~5k rounds)</option>
+                            <option value="0.02" ${state.targetPrecision === 0.02 ? 'selected' : ''}>±2% (moderate, ~1k rounds)</option>
+                            <option value="0.03" ${state.targetPrecision === 0.03 ? 'selected' : ''}>±3% (rough, ~500 rounds)</option>
+                        </select>
+                        
+                        <label class="block font-semibold mb-2 text-gray-700">Auto-play rounds:</label>
+                        <select
+                            onchange="updateAutoPlayCount(this.value)"
+                            class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none mb-4"
+                        >
+                            <option value="100" ${state.autoPlayCount === 100 ? 'selected' : ''}>100 rounds</option>
+                            <option value="500" ${state.autoPlayCount === 500 ? 'selected' : ''}>500 rounds</option>
+                            <option value="1000" ${state.autoPlayCount === 1000 ? 'selected' : ''}>1,000 rounds</option>
+                            <option value="2000" ${state.autoPlayCount === 2000 ? 'selected' : ''}>2,000 rounds</option>
+                            <option value="5000" ${state.autoPlayCount === 5000 ? 'selected' : ''}>5,000 rounds</option>
+                        </select>
+                        
+                        <label class="block font-semibold mb-2 text-gray-700">Choose Strategy:</label>
+                        <select
+                            onchange="updateStrategy(this.value)"
+                            class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                        >
+                            ${Object.entries(strategies).map(([key, strat]) => 
+                                `<option value="${key}" ${state.strategy === key ? 'selected' : ''}>${strat.name}</option>`
+                            ).join('')}
+                        </select>
+                        <p class="text-sm text-gray-600 mt-2">${currentStrategy.description}</p>
+                        <p class="text-sm font-semibold text-purple-600 mt-1">
+                            Expected win rate: ${(stats.expectedRate * 100).toFixed(1)}%
+                        </p>
+                    </div>
+
+                    <div class="flex gap-3 mb-6">
+                        <button
+                            onclick="playRound()"
+                            ${state.isPlaying ? 'disabled' : ''}
+                            class="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            Play One Round
+                        </button>
+                        <button
+                            onclick="autoPlay()"
+                            ${state.isPlaying ? 'disabled' : ''}
+                            class="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 cursor-pointer"
+                        >
+                            Auto-Play ${state.autoPlayCount}
+                        </button>
+                        <button
+                            onclick="runUntilPrecise()"
+                            ${state.isPlaying ? 'disabled' : ''}
+                            class="flex-1 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-400 cursor-pointer"
+                        >
+                            Run Until Precise
+                        </button>
+                        <button
+                            onclick="reset()"
+                            class="bg-gray-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-gray-700 flex items-center gap-2 cursor-pointer"
+                        >
+                            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path d="M1 4v6h6M23 20v-6h-6"/>
+                                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="bg-gradient-to-r from-purple-100 to-blue-100 p-6 rounded-lg mb-6">
+                        <h3 class="text-xl font-bold mb-3 text-gray-800">Results</h3>
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="bg-white p-4 rounded-lg">
+                                <div class="text-3xl font-bold text-blue-600">${state.rounds}</div>
+                                <div class="text-sm text-gray-600">Rounds Played</div>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg">
+                                <div class="text-3xl font-bold text-green-600">${state.wins}</div>
+                                <div class="text-sm text-gray-600">Wins</div>
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-semibold">Win Rate:</span>
+                                <span class="text-2xl font-bold ${
+                                    stats.winRate > 0.75 ? 'text-purple-600' : 
+                                    stats.winRate >= 0.73 ? 'text-green-600' : 
+                                    'text-orange-600'
+                                }">
+                                    ${state.rounds > 0 ? `${(stats.winRate * 100).toFixed(1)}%` : '—'}
+                                </span>
+                            </div>
+                            ${state.rounds > 0 ? `
+                                <div class="w-full bg-gray-200 rounded-full h-3 mb-3">
+                                    <div
+                                        class="h-3 rounded-full transition-all ${
+                                            stats.winRate > 0.75 ? 'bg-purple-600' :
+                                            stats.winRate >= 0.73 ? 'bg-green-600' :
+                                            'bg-orange-600'
+                                        }"
+                                        style="width: ${Math.min(stats.winRate * 100, 100)}%"
+                                    ></div>
+                                </div>
+                                <div class="text-sm text-gray-600 space-y-1">
+                                    <div>95% Confidence: ${(stats.confidenceLow * 100).toFixed(1)}% - ${(stats.confidenceHigh * 100).toFixed(1)}%</div>
+                                    <div>Margin of Error: ±${(stats.marginOfError * 100).toFixed(2)}%</div>
+                                    ${stats.isSignificant && !stats.canDistinguishQuantum && state.strategy === 'quantum' ? `
+                                        <div class="text-blue-600 font-semibold">
+                                            💡 Play ~400+ rounds to clearly distinguish quantum (85%) from classical (75%)
+                                        </div>
+                                    ` : ''}
+                                    ${stats.canDistinguishQuantum && state.strategy === 'quantum' && stats.winRate > 0.80 ? `
+                                        <div class="text-purple-600 font-semibold">
+                                            ✨ Quantum advantage confirmed! This beats any classical strategy!
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    ${state.currentRound ? `
+                        <div class="bg-gray-50 p-6 rounded-lg">
+                            <h3 class="font-bold mb-3 text-gray-800">Last Round:</h3>
+                            <div class="grid grid-cols-2 gap-6 mb-4">
+                                <div class="bg-blue-100 p-4 rounded-lg">
+                                    <div class="font-semibold text-blue-800 mb-2">Alice</div>
+                                    <div class="text-sm">Input (x): <span class="font-mono font-bold">${state.currentRound.x}</span></div>
+                                    <div class="text-sm">Output (a): <span class="font-mono font-bold">${state.currentRound.a}</span></div>
+                                </div>
+                                <div class="bg-purple-100 p-4 rounded-lg">
+                                    <div class="font-semibold text-purple-800 mb-2">Bob</div>
+                                    <div class="text-sm">Input (y): <span class="font-mono font-bold">${state.currentRound.y}</span></div>
+                                    <div class="text-sm">Output (b): <span class="font-mono font-bold">${state.currentRound.b}</span></div>
+                                </div>
+                            </div>
+                            <div class="bg-white p-4 rounded-lg border-2 border-gray-200">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span>a XOR b = <span class="font-mono font-bold">${state.currentRound.aliceXorBob}</span></span>
+                                    <span>x AND y = <span class="font-mono font-bold">${state.currentRound.xAndY}</span></span>
+                                </div>
+                                <div class="text-center py-2 px-4 rounded font-bold ${
+                                    state.currentRound.win ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                }">
+                                    ${state.currentRound.win ? '✓ WIN' : '✗ LOSE'}
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-xl font-bold mb-3 text-gray-800">Why This Matters</h3>
+                    <div class="space-y-3 text-gray-700">
+                        <p>
+                            <strong>Classical strategies are stuck at 75%.</strong> The problem is the case where x=1 and y=1: 
+                            you need a XOR b = 1, but without communication, you can't coordinate who outputs 1.
+                        </p>
+                        <p>
+                            <strong>Quantum strategies break this limit!</strong> By measuring entangled qubits at specific 
+                            angles (0°/90° for Alice, ±45° for Bob), they achieve ~85% win rate. This is Tsirelson's bound—the 
+                            maximum possible even with quantum mechanics. It's about correlations that are fundamentally stronger 
+                            than any classical system allows.
+                        </p>
+                        <p>
+                            <strong>This proves local hidden variables are impossible.</strong> Bell's theorem shows that no 
+                            pre-shared information (hidden variables) can reproduce quantum predictions. Nature defies classical limits!
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Event handlers
+        function toggleExplanation() {
+            state.showExplanation = !state.showExplanation;
+            render();
+        }
+
+        function updateStrategy(value) {
+            state.strategy = value;
+            reset();
+        }
+
+        function updateAutoPlayCount(value) {
+            state.autoPlayCount = Number(value);
+            render();
+        }
+
+        function updateTargetPrecision(value) {
+            state.targetPrecision = Number(value);
+            render();
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
