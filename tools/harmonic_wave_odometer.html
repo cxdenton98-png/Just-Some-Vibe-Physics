@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wave-Odometer — Harmonic View</title>
+<style>
+  html, body { margin:0; padding:0; background:#fff; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #ui { display:flex; gap:12px; padding:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #eee; }
+  label { font-size:14px; color:#222; display:flex; gap:6px; align-items:center; }
+  input, select, button { font-size:14px; padding:6px 8px; }
+  .note { font-size:12px; color:#666; }
+  canvas { display:block; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <label>Number:
+    <input id="num" value="2.37" size="10" />
+  </label>
+  <label>Base:
+    <select id="base">
+      <option selected>10</option><option>2</option><option>3</option><option>4</option>
+      <option>5</option><option>6</option><option>7</option><option>8</option>
+      <option>9</option><option>12</option><option>16</option>
+    </select>
+  </label>
+  <label>Fractional rings:
+    <input id="depth" type="range" min="0" max="6" value="3" />
+    <span id="depthOut">3</span>
+  </label>
+  <label>Speed:
+    <input id="speed" type="range" min="0" max="400" value="60" />
+    <span id="speedOut">1.00×</span>
+  </label>
+  <label>Trace amplitude:
+    <input id="amp" type="range" min="1" max="120" value="40" />
+    <span id="ampOut">40</span>
+  </label>
+  <label>Direction:
+    <select id="dir">
+      <option value="1">CW</option>
+      <option value="-1">CCW</option>
+    </select>
+  </label>
+  <label>Mapping:
+    <select id="map">
+      <option value="value">Value (digit×radix)</option>
+      <option value="radix">Radix (place-only speed)</option>
+      <option value="digit">Digit (cycles/period)</option>
+      <option value="harmonic" selected>Harmonic (1/n series)</option>
+    </select>
+  </label>
+  <label>
+    <input type="checkbox" id="components" checked />
+    Show components
+  </label>
+  <button id="pauseBtn">⏸︎ Pause</button>
+  <span class="note">In <em>Harmonic</em>, ω = 2π·digit/n where n is ring number. Boost speed past 200× for aliasing effects.</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+<script>
+let cfg = {
+  B: 10,
+  depth: 3,
+  ampBase: 40,
+  running: true,
+  speed: 1.0,
+  dir: 1,
+  map: 'harmonic',
+  showComponents: true
+};
+
+let rep = { sign:+1, onesDigit:0, intLabel:"0", fracDigits:[] };
+
+const elNum=()=>document.getElementById('num');
+const elBase=()=>document.getElementById('base');
+const elDepth=()=>document.getElementById('depth');
+const elDepthOut=()=>document.getElementById('depthOut');
+const elSpeed=()=>document.getElementById('speed');
+const elSpeedOut=()=>document.getElementById('speedOut');
+const elAmp=()=>document.getElementById('amp');
+const elAmpOut=()=>document.getElementById('ampOut');
+const elPause=()=>document.getElementById('pauseBtn');
+const elDir=()=>document.getElementById('dir');
+const elMap=()=>document.getElementById('map');
+const elComp=()=>document.getElementById('components');
+
+const DIGITS="0123456789ABCDEF";
+const DIG2VAL=Object.fromEntries([...DIGITS].map((ch,i)=>[ch,i]));
+
+function parseBaseB(str,B){
+  str=str.trim().toUpperCase();
+  let sign=+1;
+  if(str.startsWith("-")){sign=-1;str=str.slice(1);}
+  if(str.startsWith("+")){str=str.slice(1);}
+  let [iPart,fPart=""]=str.split(".");
+  if(iPart==="") iPart="0";
+  const ok=s=>[...s].every(ch=>DIG2VAL[ch]!==undefined && DIG2VAL[ch]<B);
+  if(!ok(iPart)||!ok(fPart)) return null;
+  const onesDigit=DIG2VAL[iPart[iPart.length-1]];
+  const intLabel=iPart;
+  const fracDigits=[...fPart].map(ch=>DIG2VAL[ch]);
+  return {sign,onesDigit,intLabel,fracDigits};
+}
+
+function updateRepFromUI(){
+  cfg.B=parseInt(elBase().value,10);
+  cfg.depth=parseInt(elDepth().value,10);
+  cfg.ampBase=parseInt(elAmp().value,10);
+  cfg.dir=parseInt(elDir().value,10)||1;
+  cfg.map=elMap().value||'value';
+  cfg.showComponents=!!elComp().checked;
+
+  const p=parseBaseB(elNum().value,cfg.B);
+  if(p) rep=p;
+
+  elDepthOut().textContent=cfg.depth;
+  const spd=parseInt(elSpeed().value,10);
+  cfg.speed=spd/60; elSpeedOut().textContent=cfg.speed.toFixed(2)+"×";
+  elAmpOut().textContent=cfg.ampBase;
+  elPause().textContent=cfg.running?"⏸︎ Pause":"▶︎ Play";
+}
+
+let t=0, traceBuf=[], TRACE_N=900;
+
+function setup(){
+  createCanvas(1150, 800); pixelDensity(1);
+  elNum().addEventListener('input',updateRepFromUI);
+  elBase().addEventListener('change',updateRepFromUI);
+  elDepth().addEventListener('input',updateRepFromUI);
+  elSpeed().addEventListener('input',updateRepFromUI);
+  elAmp().addEventListener('input',updateRepFromUI);
+  elDir().addEventListener('change',updateRepFromUI);
+  elMap().addEventListener('change',updateRepFromUI);
+  elComp().addEventListener('change',updateRepFromUI);
+  elPause().addEventListener('click',()=>{cfg.running=!cfg.running; updateRepFromUI();});
+  updateRepFromUI();
+}
+
+function draw(){
+  background(255);
+  
+  // Left: rings
+  const leftX = width*0.25, leftY = height*0.5;
+  push(); translate(leftX, leftY); drawRings(); pop();
+  
+  // Right-top: time trace
+  const rightX = width*0.60;
+  const topY = height*0.30;
+  drawTrace(rightX, topY);
+  
+  // Right-bottom: phase orbit
+  const bottomY = height*0.70;
+  drawPhaseView(rightX, bottomY);
+
+  if(cfg.running) t+=cfg.speed*(1/60);
+}
+
+/* ---------- core helpers ---------- */
+function placeIndexFromPower(placePower){ return (placePower===0)?0:-(placePower); }
+function omegaFor(digit, placePower){
+  if(cfg.map==='harmonic'){
+    const n = (placePower === 0) ? 1 : (-placePower + 1);
+    return TWO_PI * digit / n;
+  }
+  if(cfg.map==='value'){ const k = placeIndexFromPower(placePower); return TWO_PI * digit * Math.pow(cfg.B, k); }
+  if(cfg.map==='radix'){ const k = placeIndexFromPower(placePower); return TWO_PI * Math.pow(cfg.B, k); }
+  return TWO_PI * digit;
+}
+function ampFor(index){ return cfg.ampBase / Math.pow(cfg.B, index); }
+
+/* ---------- rings ---------- */
+function drawRings(){
+  const B=cfg.B, maxRings=1+cfg.depth;
+  const outerR=Math.min(width*0.22, height*0.40);
+  const gap=Math.max(18, outerR/(maxRings+1.6));
+  const intText=(rep.sign<0?"-":"")+rep.intLabel;
+  noStroke(); fill(0); textAlign(CENTER,BOTTOM); textSize(16);
+  text(`integer label (base ${B}):  ${intText}`, 0, -outerR-26);
+
+  function ring(radius, digit, placePower){
+    stroke(0); noFill(); strokeWeight(2); circle(0,0,2*radius);
+    stroke(0,60);
+    for(let k=0;k<B;k++){
+      const th=TWO_PI*(k/B);
+      line((radius-6)*Math.cos(th),(radius-6)*Math.sin(th),
+            radius*Math.cos(th), radius*Math.sin(th));
+    }
+    const omega=omegaFor(digit, placePower);
+    const theta=cfg.dir*omega*t;
+    noStroke(); fill(0);
+    circle(radius*Math.cos(theta), radius*Math.sin(theta), 10);
+  }
+
+  ring(outerR, rep.onesDigit, 0);
+  for(let i=0;i<cfg.depth;i++){
+    const r=outerR-(i+1)*gap; if(r<18) break;
+    const digit = rep.fracDigits[i] ?? 0;
+    ring(r, digit, -(i+1));
+  }
+}
+
+/* ---------- trace ---------- */
+function drawTrace(x0, midY){
+  const W=width*0.35, H=200, yTop=midY-H/2;
+  noFill(); stroke(0,60); rect(x0,yTop,W,H);
+  stroke(0,40); line(x0, midY, x0+W, midY);
+  const y = sampleWave(t);
+  traceBuf.push(y); if(traceBuf.length>TRACE_N) traceBuf.shift();
+  noFill(); stroke(0); strokeWeight(1.7);
+  beginShape();
+  for(let i=0;i<traceBuf.length;i++){
+    const xx=x0 + (i/(TRACE_N-1))*W;
+    const yy=midY - traceBuf[i];
+    vertex(xx,yy);
+  }
+  endShape();
+  noStroke(); fill(0); textSize(14);
+  text("Time trace (y(t))", x0, yTop-6);
+}
+
+/* ---------- phase orbit ---------- */
+function drawPhaseView(x0, midY){
+  const R=120;
+  noFill(); stroke(0,60); rect(x0-R, midY-R, 2*R, 2*R);
+  stroke(0); noFill(); strokeWeight(1.5);
+  beginShape();
+  const N=600;
+  for(let i=0;i<N;i++){
+    const tt = t + i*0.01;
+    let sumX=0, sumY=0;
+    function term(digit, placePower, idx){
+      if(digit===0) return;
+      const omega=omegaFor(digit, placePower);
+      const A=ampFor(idx);
+      const theta=cfg.dir*omega*tt;
+      sumX += A*Math.cos(theta);
+      sumY += A*Math.sin(theta);
+    }
+    term(rep.onesDigit,0,0);
+    for(let k=0;k<cfg.depth;k++){
+      term(rep.fracDigits[k] ?? 0, -(k+1), k+1);
+    }
+    vertex(x0+sumX, midY-sumY);
+  }
+  endShape();
+  noStroke(); fill(0); textSize(14);
+  text("Phase space (cos θ, sin θ)", x0-R, midY-R-6);
+}
+
+/* ---------- samplers ---------- */
+function sampleWave(tt){
+  let sum=0;
+  function term(digit, placePower, idx){
+    if(digit===0) return 0;
+    const omega=omegaFor(digit, placePower);
+    const A=ampFor(idx);
+    return rep.sign * A * Math.sin(cfg.dir*omega*tt);
+  }
+  sum += term(rep.onesDigit, 0, 0);
+  for(let i=0;i<cfg.depth;i++){
+    const d=rep.fracDigits[i] ?? 0;
+    sum += term(d, -(i+1), i+1);
+  }
+  return sum;
+}
+
+window.addEventListener('load', updateRepFromUI);
+</script>
+</body>
+</html>
